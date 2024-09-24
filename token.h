@@ -1,8 +1,8 @@
 #pragma once
 
-#include <string>
+#include "common.h"
 
-namespace token {
+namespace Token {
 
 enum tkn_type {
   //scream cased to avoid keyword conflicts with cpp
@@ -25,11 +25,12 @@ enum tkn_type {
   PRINT, RETURN, SUPER, THIS, TRUE, VAR, WHILE,
 
   //avoid C variable EOF
-  Eof
+  EoF
 };
 
 
 class token {
+  public:
   enum tkn_type type;
   //TODO: This is a waste of space but you can't put strings in unions, 
   //and inheritence is way worse
@@ -41,13 +42,17 @@ class token {
   /* Token location in the user input text stream */
   unsigned locus; 
 
+  /* Identifier or string */
   token(tkn_type type, std::string &&lexeme, unsigned locus); 
+  /* number literal */
   token(tkn_type type, unsigned literal, unsigned locus);
 
-  /*
-TODO: Fix this ONCE WE KNOW WHAT WE WANT TO STORE!
-  std::string as_string() {}
-  */
+  /* simple token with no associated data */
+  token(tkn_type type, unsigned locus);
+
+  std::string as_string();
 };
+
+bool tokenize_input(const string &source, vector<token> &tkns);
 
 }
