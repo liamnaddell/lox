@@ -1,7 +1,8 @@
-// use.cpp
-import Hello;
+#include "token.h"
+#include "ast.h"
+
 int main() {
-  hello();
+  //TODO: See logic subfolder on how to read user input, etc
   return 0;
 }
 
