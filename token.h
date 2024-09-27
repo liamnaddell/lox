@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common.h"
-
+#include "parser.h"
 namespace Token {
 
 enum tkn_type {
@@ -29,7 +29,7 @@ enum tkn_type {
 };
 
 
-class token {
+class token : public parser {
   public:
   enum tkn_type type;
   //TODO: This is a waste of space but you can't put strings in unions, 
@@ -51,6 +51,14 @@ class token {
   token(tkn_type type, unsigned locus);
 
   std::string as_string();
+
+  const tkn_type get_type(){
+    return this->type;
+  };
+
+  virtual unsigned parse(){
+    return 1; //dummy, changes are needed
+  }; 
 };
 
 bool tokenize_input(const string &source, vector<token> &tkns);

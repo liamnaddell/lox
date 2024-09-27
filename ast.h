@@ -1,6 +1,7 @@
 #pragma once
 #include "common.h"
 #include "token.h"
+#include "parser.h"
 
 using namespace Token;
 
@@ -151,31 +152,56 @@ TODO: Another challenge, coding up environments, specifically wrt closures.
  *  A ; { B; C}; D
  *  The same parse sequence would work starting from the right. Such a rule must be applied to n-ary operators.
  */
+// class parsable {
+//   constexpr virtual vector<parsable> char_func();
+//   constexpr virtual bool is_token() {
+//     return false;
+//   };
+// };
 
 //TODO: Define visitor pattern
-class ast {
+class ast : public parser{
   public:
   bool eval(void);
+  //initialize parser, and force it to try and parse an expression. We need to seed the parser with the full user input.
+  //every parsable item inherits from the abstract parser class.
+  // a parser returns an amount of tokens parsed.
+  // AST::Expr e;
+  // e.parse(user_input);
+  // Expr::parse() {
+    // unsigned tokens_ate = Binop.parse()
+    // if 0, parse fail
+    // ...
+    // error("nice expression jackass")
+  // }
 };
 
-class expr {
+class expr : public parser {
   unsigned locus;
+  // const vector<
 };
 
 //TODO: These are dummy classes, see Expr.java for a more accurate set
-class literal : public expr {
+class literal : public expr, public parser {
   token tkn;
 };
 
-class unary : public expr {
+class unary : public expr, public parser {
   tkn_type op;
   unique_ptr<expr> sub;
+
+  unsigned parse() ; 
+
 };
 
-class binary : public expr {
+class binary : public expr, public parser {
   tkn_type op;
   unique_ptr<expr> left;
   unique_ptr<expr> right;
+};
+
+class grouping : public expr, public parser {
+  tkn_type op;
 };
 
 bool parse_tkns(const std::vector<Token::token> &tkns, ast &ast);
