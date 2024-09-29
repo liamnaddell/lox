@@ -1,10 +1,12 @@
 #pragma once
 #include "common.h"
 #include "token.h"
+#include "visitor.h"
 
 using namespace Token;
 
 namespace AST {
+
 
   /*
 TODO: Represent the following grammar (at first)
@@ -158,26 +160,42 @@ class ast {
   bool eval(void);
 };
 
-class expr {
+class expr : public visitable {
+  public:
   unsigned locus;
 };
 
 //TODO: These are dummy classes, see Expr.java for a more accurate set
 class literal : public expr {
   token tkn;
+  /* visitable */
+  //TODO: Is this required? Isn't default behavior just to rage quit and call nothing?
+  virtual void accept(visitor &) {}
 };
 
 class unary : public expr {
   tkn_type op;
   unique_ptr<expr> sub;
+  /* visitable */
+  virtual void accept(visitor &v) {
+    sub->accept(v);
+  }
 };
 
 class binary : public expr {
   tkn_type op;
   unique_ptr<expr> left;
   unique_ptr<expr> right;
+  /* visitable */
+  virtual void accept(visitor &v) override {
+    left->accept(v);
+    right->accept(v);
+  }
 };
 
+
 bool parse_tkns(const std::vector<Token::token> &tkns, ast &ast);
+
+
 
 } /* namespace AST */
