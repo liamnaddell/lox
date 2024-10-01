@@ -1,14 +1,20 @@
 #pragma once
 #include "common.h"
 #include "token.h"
-#include "visitor.h"
+//#include "ast_fwd.h"
 
 using namespace Token;
 
 namespace AST {
 
+class visitor;
+class visitable {
+  public:
+  virtual void accept(visitor &v) = 0;
+};
 
-  /*
+
+/*
 TODO: Represent the following grammar (at first)
 expression     → literal
                | unary
@@ -160,8 +166,8 @@ TODO: Another challenge, coding up environments, specifically wrt closures.
 // either stmt, block, or var decl
 // or fn decl
 class decl: public visitable {
+public:
   int a;
-  virtual void accept(visitor &v) override {};
 };
 
 class program  {
@@ -169,13 +175,17 @@ public:
   vector<unique_ptr<decl>> stmts;
 };
 
+class literal;
+class block;
+
 class fn_decl: public decl {
+  public:
     //fn name
     //TODO: Fix literal -> ident conv
     unique_ptr<literal> ident;
     unique_ptr<literal> args;
     unique_ptr<block> fn_def;
-    virtual void accept(visitor &v) {};
+    virtual void accept(visitor &v);
 };
 
 /*
@@ -186,12 +196,15 @@ class fn_decl: public decl {
 class stmt: public decl { };
 
 class return_stmt {
-    virtual void accept(visitor &v) {};
+    virtual void accept(visitor &v);
 };
+
+class expr; 
+
 class print_stmt: public stmt {
 public:
   unique_ptr<expr> to_print;
-  virtual void accept(visitor &v) {};
+  virtual void accept(visitor &v);
 };
 
 class var_decl: public decl {
@@ -203,25 +216,26 @@ public:
    */
   unique_ptr<literal> ident;
   unique_ptr<expr> value;
-  virtual void accept(visitor &v) {};
+  virtual void accept(visitor &v);
 };
 
 class block: public decl {
+  public:
   vector<unique_ptr<stmt>> stmts;
-  virtual void accept(visitor &v) {};
+  virtual void accept(visitor &v);
 };
 
 class if_stmt: public stmt {
     unique_ptr<expr> condition;
     unique_ptr<stmt> then_stmt;
     unique_ptr<stmt> else_stmt;
-  virtual void accept(visitor &v) {};
+  virtual void accept(visitor &v);
 };
 
 class while_stmt: public stmt {
     unique_ptr<expr> is_true;
     unique_ptr<stmt> do_stmt;
-  virtual void accept(visitor &v) {};
+  virtual void accept(visitor &v);
 };
 
 class for_stmt {
@@ -235,6 +249,7 @@ public:
 
 //TODO: These are dummy classes, see Expr.java for a more accurate set
 class literal : public expr {
+  public:
   token tkn;
   /* visitable */
   //TODO: Is this required? Isn't default behavior just to rage quit and call nothing?
@@ -271,6 +286,28 @@ class ast {
   bool eval(void);
 };
 
-bool parse_tkns(const std::vector<Token::token> &tkns, ast &ast);
+class visitor {
+  public:
+    virtual void visit(program &l);
+    virtual void visit(literal &l);
+    virtual void visit(binary &l);
+    virtual void visit(unary &l);
+    virtual void visit(block &l);
+    virtual void visit(fn_decl &l);
+    virtual void visit(return_stmt &l);
+    virtual void visit(print_stmt &l);
+    virtual void visit(var_decl &l);
+    virtual void visit(if_stmt &l);
+    virtual void visit(while_stmt &l);
+    virtual void visit(call &l);
+};
 
+bool parse_tkns(const std::vector<Token::token> &tkns, ast &ast);
+void print_ast(const ast&);
+
+void fn_decl::accept(visitor &v) {
+    this->ident->accept(v);
+    this->args->accept(v);
+    this->fn_def->accept(v);
+}
 } /* namespace AST */
