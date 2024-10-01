@@ -94,7 +94,7 @@ function       → IDENTIFIER "(" parameters? ")" block ;
 parameters     → IDENTIFIER ( "," IDENTIFIER )* ;
 
 And finally, for return:
-  statement      → exprStmt
+  statement    → exprStmt
                | forStmt
                | ifStmt
                | printStmt
@@ -154,14 +154,82 @@ TODO: Another challenge, coding up environments, specifically wrt closures.
  *  The same parse sequence would work starting from the right. Such a rule must be applied to n-ary operators.
  */
 
-//TODO: Define visitor pattern
-class ast {
-  public:
-  bool eval(void);
+
+
+// Toplev declarations
+// either stmt, block, or var decl
+// or fn decl
+class decl: public visitable {
+  int a;
+  virtual void accept(visitor &v) override {};
 };
 
-class expr : public visitable {
-  public:
+class program  {
+public:
+  vector<unique_ptr<decl>> stmts;
+};
+
+class fn_decl: public decl {
+    //fn name
+    //TODO: Fix literal -> ident conv
+    unique_ptr<literal> ident;
+    unique_ptr<literal> args;
+    unique_ptr<block> fn_def;
+    virtual void accept(visitor &v) {};
+};
+
+/*
+ * Could be one of:
+ *  expr, for, if, print, return, while, or block.
+ */
+
+class stmt: public decl { };
+
+class return_stmt {
+    virtual void accept(visitor &v) {};
+};
+class print_stmt: public stmt {
+public:
+  unique_ptr<expr> to_print;
+  virtual void accept(visitor &v) {};
+};
+
+class var_decl: public decl {
+public:
+  /*
+   * var x = value
+   * x is the ident
+   * value is the value
+   */
+  unique_ptr<literal> ident;
+  unique_ptr<expr> value;
+  virtual void accept(visitor &v) {};
+};
+
+class block: public decl {
+  vector<unique_ptr<stmt>> stmts;
+  virtual void accept(visitor &v) {};
+};
+
+class if_stmt: public stmt {
+    unique_ptr<expr> condition;
+    unique_ptr<stmt> then_stmt;
+    unique_ptr<stmt> else_stmt;
+  virtual void accept(visitor &v) {};
+};
+
+class while_stmt: public stmt {
+    unique_ptr<expr> is_true;
+    unique_ptr<stmt> do_stmt;
+  virtual void accept(visitor &v) {};
+};
+
+class for_stmt {
+    //Decornsyrup to while stmt.
+};
+
+class expr : public stmt {
+public:
   unsigned locus;
 };
 
@@ -182,6 +250,10 @@ class unary : public expr {
   }
 };
 
+class call : public unary {
+    vector<unique_ptr<expr>> args;
+};
+
 class binary : public expr {
   tkn_type op;
   unique_ptr<expr> left;
@@ -193,9 +265,12 @@ class binary : public expr {
   }
 };
 
+class ast {
+  public:
+    unique_ptr<program> root;
+  bool eval(void);
+};
 
 bool parse_tkns(const std::vector<Token::token> &tkns, ast &ast);
-
-
 
 } /* namespace AST */
