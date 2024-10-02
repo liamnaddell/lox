@@ -182,8 +182,8 @@ class fn_decl: public decl {
   public:
     //fn name
     //TODO: Fix literal -> ident conv
-    unique_ptr<literal> ident;
-    unique_ptr<literal> args;
+    ident name;
+    vector<ident> args;
     unique_ptr<block> fn_def;
     virtual void accept(visitor &v);
 };
@@ -196,7 +196,7 @@ class fn_decl: public decl {
 class stmt: public decl { };
 
 class return_stmt {
-    virtual void accept(visitor &v);
+    virtual void accept(visitor &) {};
 };
 
 class expr; 
@@ -214,9 +214,15 @@ public:
    * x is the ident
    * value is the value
    */
-  unique_ptr<literal> ident;
+  ident name;
   unique_ptr<expr> value;
   virtual void accept(visitor &v);
+  static unique_ptr<var_decl> create(ident name, unique_ptr<expr> v) {
+    unique_ptr<var_decl> p = unique_ptr<var_decl>(new var_decl());
+    p->name = name;
+    p->value = move(v);
+    return p;
+  }
 };
 
 class block: public decl {
@@ -265,7 +271,12 @@ class unary : public expr {
   }
 };
 
-class call : public unary {
+//TODO: crafty int guy thinks calls are unary operators
+//I think that's 心の病気.
+//My way is 正義.
+class call : public expr {
+  public:
+    unique_ptr<literal> ident;
     vector<unique_ptr<expr>> args;
 };
 
@@ -302,12 +313,14 @@ class visitor {
     virtual void visit(call &l);
 };
 
-bool parse_tkns(const std::vector<Token::token> &tkns, ast &ast);
+optional<ast> parse_tkns(const std::vector<Token::token> &tkns);
 void print_ast(const ast&);
 
+#if 0
 void fn_decl::accept(visitor &v) {
     this->ident->accept(v);
     this->args->accept(v);
     this->fn_def->accept(v);
 }
+#endif
 } /* namespace AST */

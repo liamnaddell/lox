@@ -5,6 +5,7 @@
 #include <cassert>
 #include <memory>
 #include <iostream>
+#include <optional>
 
 using std::string;
 using std::vector;
@@ -12,7 +13,12 @@ using std::cout;
 using std::cin;
 using std::cerr;
 using std::unique_ptr;
+using std::make_unique;
+using std::optional;
+using std::nullopt;
 
+//TODO: Fix this to ensure valid idents.
+using ident = string;
 
 static inline bool is_num(char c) {
   return c >= '0' && c <= '9';

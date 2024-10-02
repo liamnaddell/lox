@@ -46,12 +46,14 @@ int main(int argc, char *argv[]) {
 
   //TODO: T>I>N>A
   AST::ast ast;
-  res = AST::parse_tkns(tkns,ast);
+  optional<AST::ast> a = AST::parse_tkns(tkns);
 
-  if (res == false) {
+  if (!a.has_value()) {
     Error::emit("[畜生] Parse failed");
     return -3;
   }
+
+  AST::print_ast(*a);
 
   res = ast.eval();
   if (res == false) {
