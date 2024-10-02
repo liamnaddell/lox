@@ -205,6 +205,11 @@ class print_stmt: public stmt {
 public:
   unique_ptr<expr> to_print;
   virtual void accept(visitor &v);
+  static unique_ptr<print_stmt> create(unique_ptr<expr> v) {
+    auto p = unique_ptr<print_stmt>(new print_stmt());
+    p->to_print = move(v);
+    return p;
+  }
 };
 
 class var_decl: public decl {
@@ -224,24 +229,44 @@ public:
     return p;
   }
 };
+//TODO: Formatting w/ clang-format rules.
 
 class block: public decl {
   public:
   vector<unique_ptr<stmt>> stmts;
   virtual void accept(visitor &v);
+  static unique_ptr<block> create() {
+    auto p = unique_ptr<block>(new block());
+    return p;
+  }
 };
 
 class if_stmt: public stmt {
-    unique_ptr<expr> condition;
-    unique_ptr<stmt> then_stmt;
-    unique_ptr<stmt> else_stmt;
+  public:
+  unique_ptr<expr> condition;
+  unique_ptr<stmt> then_stmt;
+  unique_ptr<stmt> else_stmt;
   virtual void accept(visitor &v);
+  static unique_ptr<if_stmt> create(unique_ptr<expr> condition, unique_ptr<stmt> then_stmt, unique_ptr<stmt> else_stmt) {
+    auto p = unique_ptr<if_stmt>(new if_stmt());
+    p->condition=move(condition);
+    p->then_stmt=move(then_stmt);
+    p->else_stmt=move(else_stmt);
+    return p;
+  }
 };
 
 class while_stmt: public stmt {
-    unique_ptr<expr> is_true;
-    unique_ptr<stmt> do_stmt;
+  public:
+  unique_ptr<expr> is_true;
+  unique_ptr<stmt> do_stmt;
   virtual void accept(visitor &v);
+  static unique_ptr<while_stmt> create(unique_ptr<expr> is_true, unique_ptr<stmt> do_stmt) {
+    auto p = unique_ptr<while_stmt>(new while_stmt());
+    p->is_true=move(is_true);
+    p->do_stmt=move(do_stmt);
+    return p;
+  }
 };
 
 class for_stmt {
@@ -256,10 +281,16 @@ public:
 //TODO: These are dummy classes, see Expr.java for a more accurate set
 class literal : public expr {
   public:
-  token tkn;
+    //TODO: Fix this later
+  optional<token> tkn;
   /* visitable */
   //TODO: Is this required? Isn't default behavior just to rage quit and call nothing?
   virtual void accept(visitor &) {}
+  static unique_ptr<literal> create(token tkn) {
+    auto p = unique_ptr<literal>(new literal());
+    *p->tkn=tkn;
+    return p;
+  }
 };
 
 class unary : public expr {
@@ -269,6 +300,12 @@ class unary : public expr {
   virtual void accept(visitor &v) {
     sub->accept(v);
   }
+  static unique_ptr<unary> create(tkn_type op, unique_ptr<expr> sub) {
+    auto p = unique_ptr<unary>(new unary());
+    p->op=op;
+    p->sub=move(sub);
+    return p;
+  }
 };
 
 //TODO: crafty int guy thinks calls are unary operators
@@ -276,11 +313,21 @@ class unary : public expr {
 //My way is 正義.
 class call : public expr {
   public:
-    unique_ptr<literal> ident;
+    ident fn_name;
     vector<unique_ptr<expr>> args;
+  virtual void accept(visitor &v) {
+    for (auto &a : args)
+      a->accept(v);
+  }
+  static unique_ptr<call> create(ident fn_name) {
+    auto p = unique_ptr<call>(new call());
+    p->fn_name=fn_name;
+    return p;
+  }
 };
 
 class binary : public expr {
+  public:
   tkn_type op;
   unique_ptr<expr> left;
   unique_ptr<expr> right;
@@ -288,6 +335,13 @@ class binary : public expr {
   virtual void accept(visitor &v) override {
     left->accept(v);
     right->accept(v);
+  }
+  static unique_ptr<binary> create(tkn_type op, unique_ptr<expr> left, unique_ptr<expr> right) {
+    auto p = unique_ptr<binary>(new binary());
+    p->op=op;
+    p->left = move(left);
+    p->right = move(right);
+    return p;
   }
 };
 
