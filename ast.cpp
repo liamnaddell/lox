@@ -38,4 +38,10 @@ bool ast::eval() {
   return false;
 }
 
+void program::accept(visitor &v) {
+  v.visit(this);
+  for (auto &s : stmts)
+    s->accept(v);
+};
+
 } /* namespace AST */

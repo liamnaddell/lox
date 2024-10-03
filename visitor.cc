@@ -27,7 +27,7 @@ void block::accept(visitor &v) {
     s->accept(v);
 }
 
-
+#if 0
 void visitor::visit(call &) { }
 void visitor::visit(program &) {}
 void visitor::visit(literal &) {}
@@ -40,50 +40,51 @@ void visitor::visit(var_decl &) {}
 void visitor::visit(if_stmt &) {}
 void visitor::visit(while_stmt &) {}
 void visitor::visit(print_stmt &) {}
+#endif
 
 class ast_printer : public visitor {
   public:
-    virtual void visit(program &l) {
+    void visit(program *l) override {
       puts("program");
     }
-    virtual void visit(literal &l) {
+    virtual void visit(literal *l) override {
       puts("literal");
     }
-    virtual void visit(binary &l) {
+    virtual void visit(binary *l) override {
       puts("binary");
     }
-    virtual void visit(unary &l) {
+    virtual void visit(unary *l) override {
       puts("unary");
     }
-    virtual void visit(block &l) {
+    virtual void visit(block *l) override {
       puts("block");
     }
-    virtual void visit(fn_decl &l) {
+    virtual void visit(fn_decl *l) override {
       puts("fn");
     }
-    virtual void visit(return_stmt &l) {
+    virtual void visit(return_stmt *l) override {
       puts("return");
     }
-    virtual void visit(print_stmt &l) {
+    virtual void visit(print_stmt *l) override {
       puts("print");
     }
-    virtual void visit(var_decl &l) {
+    virtual void visit(var_decl *l) override {
       puts("var_decl");
     }
-    virtual void visit(if_stmt &l) {
+    virtual void visit(if_stmt *l) override {
       puts("if");
     }
-    virtual void visit(while_stmt &l) {
+    virtual void visit(while_stmt *l) override {
       puts("while");
     }
-    virtual void visit(call &l) {
+    virtual void visit(call *l) override {
       puts("call");
     }
 };
 
 void print_ast(const ast &tree) {
   ast_printer v;
-  v.visit(*tree.root);
+  tree.root->accept(v);
 }
 
 } /* AST */

@@ -1,11 +1,12 @@
 #pragma once
 #include "common.h"
 #include "token.h"
-//#include "ast_fwd.h"
+#include "ast_fwd.h"
 
 using namespace Token;
 
 namespace AST {
+
 
 class visitor;
 class visitable {
@@ -170,12 +171,20 @@ public:
   int a;
 };
 
-class program  {
+class program : public visitable {
 public:
   vector<unique_ptr<decl>> stmts;
   program() {
     stmts.reserve(0);
   }
+#if 0
+  virtual void accept(visitor &v) {
+    v.visit(this);
+    for (auto &s : stmts)
+      s->accept(v);
+  };
+#endif
+  virtual void accept(visitor &v);
 };
 
 class literal;
@@ -356,19 +365,20 @@ class ast {
 
 class visitor {
   public:
-    virtual void visit(program &l);
-    virtual void visit(literal &l);
-    virtual void visit(binary &l);
-    virtual void visit(unary &l);
-    virtual void visit(block &l);
-    virtual void visit(fn_decl &l);
-    virtual void visit(return_stmt &l);
-    virtual void visit(print_stmt &l);
-    virtual void visit(var_decl &l);
-    virtual void visit(if_stmt &l);
-    virtual void visit(while_stmt &l);
-    virtual void visit(call &l);
+    virtual void visit(program *l) {};
+    virtual void visit(literal *l) {};
+    virtual void visit(binary *l) {};
+    virtual void visit(unary *l) {};
+    virtual void visit(block *l) {};
+    virtual void visit(fn_decl *l) {};
+    virtual void visit(return_stmt *l) {};
+    virtual void visit(print_stmt *l) {};
+    virtual void visit(var_decl *l) {};
+    virtual void visit(if_stmt *l) {};
+    virtual void visit(while_stmt *l) {};
+    virtual void visit(call *l) {};
 };
+
 
 optional<ast> parse_tkns(const std::vector<Token::token> &tkns);
 void print_ast(const ast&);
