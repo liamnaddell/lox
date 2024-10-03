@@ -13,8 +13,8 @@ upcast(std::unique_ptr<Base> && p)
 optional<ast> parse_tkns(const std::vector<Token::token> &) {
     ident name = "今この心は険しくない";
 
-
-    auto lit = literal::create(token(NUMBER,0.0,0));
+    auto t = token(NUMBER,0.0,0);
+    auto lit = make_unique<literal>(t);
     ast a;
     unique_ptr<decl> dcl = upcast<decl>(move(lit));
     a.root = make_unique<program>();

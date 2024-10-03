@@ -175,15 +175,11 @@ class program : public visitable {
 public:
   vector<unique_ptr<decl>> stmts;
   program() {
-    stmts.reserve(0);
+    stmts.reserve(8);
   }
-#if 0
-  virtual void accept(visitor &v) {
-    v.visit(this);
-    for (auto &s : stmts)
-      s->accept(v);
-  };
-#endif
+  void push_decl(unique_ptr<decl> d) {
+      stmts.push_back(move(d));
+  }
   virtual void accept(visitor &v);
 };
 
@@ -195,9 +191,15 @@ class fn_decl: public decl {
     //fn name
     //TODO: Fix literal -> ident conv
     ident name;
-    vector<ident> args = {};
+    vector<ident> args;
     unique_ptr<block> fn_def;
     virtual void accept(visitor &v);
+    fn_decl(ident name, unique_ptr<block> fn_def): name(name) {
+	args.reserve(8);
+    }
+    void push_arg(ident &b) {
+	args.push_back(b);
+    }
 };
 
 /*
@@ -217,10 +219,8 @@ class print_stmt: public stmt {
 public:
   unique_ptr<expr> to_print;
   virtual void accept(visitor &v);
-  static unique_ptr<print_stmt> create(unique_ptr<expr> v) {
-    auto p = unique_ptr<print_stmt>(new print_stmt());
-    p->to_print = move(v);
-    return p;
+  print_stmt(unique_ptr<expr> v) {
+    to_print=move(v);
   }
 };
 
@@ -234,22 +234,18 @@ public:
   ident name;
   unique_ptr<expr> value;
   virtual void accept(visitor &v);
-  static unique_ptr<var_decl> create(ident name, unique_ptr<expr> v) {
-    unique_ptr<var_decl> p = unique_ptr<var_decl>(new var_decl());
-    p->name = name;
-    p->value = move(v);
-    return p;
+  var_decl(ident name, unique_ptr<expr> v): name(name) {
+    value = move(v);
   }
 };
 //TODO: Formatting w/ clang-format rules.
 
 class block: public decl {
   public:
-  vector<unique_ptr<stmt>> stmts = {};
+  vector<unique_ptr<stmt>> stmts;
   virtual void accept(visitor &v);
-  static unique_ptr<block> create() {
-    auto p = unique_ptr<block>(new block());
-    return p;
+  void push_stmt(unique_ptr<stmt> s) {
+      stmts.push_back(move(s));
   }
 };
 
@@ -259,12 +255,10 @@ class if_stmt: public stmt {
   unique_ptr<stmt> then_stmt;
   unique_ptr<stmt> else_stmt;
   virtual void accept(visitor &v);
-  static unique_ptr<if_stmt> create(unique_ptr<expr> condition, unique_ptr<stmt> then_stmt, unique_ptr<stmt> else_stmt) {
-    auto p = unique_ptr<if_stmt>(new if_stmt());
-    p->condition=move(condition);
-    p->then_stmt=move(then_stmt);
-    p->else_stmt=move(else_stmt);
-    return p;
+  if_stmt(unique_ptr<expr> condition, unique_ptr<stmt> then_stmt, unique_ptr<stmt> else_stmt) {
+    condition=move(condition);
+    then_stmt=move(then_stmt);
+    else_stmt=move(else_stmt);
   }
 };
 
@@ -273,11 +267,9 @@ class while_stmt: public stmt {
   unique_ptr<expr> is_true;
   unique_ptr<stmt> do_stmt;
   virtual void accept(visitor &v);
-  static unique_ptr<while_stmt> create(unique_ptr<expr> is_true, unique_ptr<stmt> do_stmt) {
-    auto p = unique_ptr<while_stmt>(new while_stmt());
-    p->is_true=move(is_true);
-    p->do_stmt=move(do_stmt);
-    return p;
+  while_stmt(unique_ptr<expr> is_true, unique_ptr<stmt> do_stmt) {
+    is_true=move(is_true);
+    do_stmt=move(do_stmt);
   }
 };
 
@@ -293,30 +285,36 @@ public:
 //TODO: These are dummy classes, see Expr.java for a more accurate set
 class literal : public expr {
   public:
-    //TODO: Fix this later
-  optional<token> tkn;
+  //TODO: Fix this later
+  variant<string,unsigned> lit;
   /* visitable */
   //TODO: Is this required? Isn't default behavior just to rage quit and call nothing?
   virtual void accept(visitor &) {}
-  static unique_ptr<literal> create(token tkn) {
-    auto p = unique_ptr<literal>(new literal());
-    p->tkn=tkn;
-    return p;
+  literal(token &tkn) {
+    switch (tkn.type) {
+	case IDENTIFIER:
+	case STRING:
+	  this->lit = tkn.lexeme;
+	  break;
+	case NUMBER:
+	  this->lit = tkn.literal;
+	  break;
+	default:
+	  assert(false);
+    }
   }
 };
 
 class unary : public expr {
+  //TODO: FIX!
   tkn_type op;
   unique_ptr<expr> sub;
   /* visitable */
   virtual void accept(visitor &v) {
     sub->accept(v);
   }
-  static unique_ptr<unary> create(tkn_type op, unique_ptr<expr> sub) {
-    auto p = unique_ptr<unary>(new unary());
-    p->op=op;
-    p->sub=move(sub);
-    return p;
+  unary(tkn_type op, unique_ptr<expr> sub): op(op) {
+    this->sub=move(sub);
   }
 };
 
@@ -331,10 +329,7 @@ class call : public expr {
     for (auto &a : args)
       a->accept(v);
   }
-  static unique_ptr<call> create(ident fn_name) {
-    auto p = unique_ptr<call>(new call());
-    p->fn_name=fn_name;
-    return p;
+  call(ident fn_name): fn_name(fn_name) {
   }
 };
 
@@ -348,12 +343,9 @@ class binary : public expr {
     left->accept(v);
     right->accept(v);
   }
-  static unique_ptr<binary> create(tkn_type op, unique_ptr<expr> left, unique_ptr<expr> right) {
-    auto p = unique_ptr<binary>(new binary());
-    p->op=op;
-    p->left = move(left);
-    p->right = move(right);
-    return p;
+  binary(tkn_type op, unique_ptr<expr> left, unique_ptr<expr> right): op(op) {
+    this->left = move(left);
+    this->right = move(right);
   }
 };
 
@@ -383,11 +375,4 @@ class visitor {
 optional<ast> parse_tkns(const std::vector<Token::token> &tkns);
 void print_ast(const ast&);
 
-#if 0
-void fn_decl::accept(visitor &v) {
-    this->ident->accept(v);
-    this->args->accept(v);
-    this->fn_def->accept(v);
-}
-#endif
 } /* namespace AST */

@@ -6,6 +6,7 @@
 #include <memory>
 #include <iostream>
 #include <optional>
+#include <variant>
 
 using std::string;
 using std::vector;
@@ -16,6 +17,7 @@ using std::unique_ptr;
 using std::make_unique;
 using std::optional;
 using std::nullopt;
+using std::variant;
 
 //TODO: Fix this to ensure valid idents.
 using ident = string;
