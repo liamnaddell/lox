@@ -1,13 +1,18 @@
 #include "ast.h"
+#include <concepts>
 
 namespace AST {
 
-template<typename Derived, typename Base>
-std::unique_ptr<Derived> 
-upcast(std::unique_ptr<Base> && p)
+template<class T, class U>
+concept Derived = std::is_base_of<U, T>::value;
+
+template<class B, class D>
+  requires Derived<D,B>
+std::unique_ptr<B> 
+upcast(std::unique_ptr<D> && p)
 {
-    auto d = static_cast<Derived *>(p.release());
-    return std::unique_ptr<Derived>(d);
+    auto d = static_cast<B *>(p.release());
+    return std::unique_ptr<B>(d);
 }
 
 optional<ast> parse_tkns(const std::vector<Token::token> &) {
