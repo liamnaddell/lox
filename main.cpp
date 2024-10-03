@@ -53,7 +53,9 @@ int main(int argc, char *argv[]) {
     return -3;
   }
 
+  puts("===DUMPING AST===");
   AST::print_ast(*a);
+  puts("===/DUMPING AST===");
 
   res = ast.eval();
   if (res == false) {

@@ -173,6 +173,9 @@ public:
 class program  {
 public:
   vector<unique_ptr<decl>> stmts;
+  program() {
+    stmts.reserve(0);
+  }
 };
 
 class literal;
@@ -183,7 +186,7 @@ class fn_decl: public decl {
     //fn name
     //TODO: Fix literal -> ident conv
     ident name;
-    vector<ident> args;
+    vector<ident> args = {};
     unique_ptr<block> fn_def;
     virtual void accept(visitor &v);
 };
@@ -233,7 +236,7 @@ public:
 
 class block: public decl {
   public:
-  vector<unique_ptr<stmt>> stmts;
+  vector<unique_ptr<stmt>> stmts = {};
   virtual void accept(visitor &v);
   static unique_ptr<block> create() {
     auto p = unique_ptr<block>(new block());
@@ -288,7 +291,7 @@ class literal : public expr {
   virtual void accept(visitor &) {}
   static unique_ptr<literal> create(token tkn) {
     auto p = unique_ptr<literal>(new literal());
-    *p->tkn=tkn;
+    p->tkn=tkn;
     return p;
   }
 };
@@ -314,7 +317,7 @@ class unary : public expr {
 class call : public expr {
   public:
     ident fn_name;
-    vector<unique_ptr<expr>> args;
+    vector<unique_ptr<expr>> args = {};
   virtual void accept(visitor &v) {
     for (auto &a : args)
       a->accept(v);
