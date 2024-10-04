@@ -44,40 +44,38 @@ void visitor::visit(print_stmt &) {}
 
 class ast_printer : public visitor {
   public:
-    void visit(program *l) override {
-      puts("program");
+    void visit(program *) override {
+      puts("program:");
     }
     virtual void visit(literal *l) override {
-      puts("literal");
+      cout << l->as_string() << '\n';
     }
-    virtual void visit(binary *l) override {
-      puts("binary");
+    virtual void visit(binary *) override {
     }
-    virtual void visit(unary *l) override {
-      puts("unary");
+    virtual void visit(unary *) override {
     }
-    virtual void visit(block *l) override {
+    virtual void visit(block *) override {
       puts("block");
     }
-    virtual void visit(fn_decl *l) override {
+    virtual void visit(fn_decl *) override {
       puts("fn");
     }
-    virtual void visit(return_stmt *l) override {
+    virtual void visit(return_stmt *) override {
       puts("return");
     }
-    virtual void visit(print_stmt *l) override {
+    virtual void visit(print_stmt *) override {
       puts("print");
     }
-    virtual void visit(var_decl *l) override {
+    virtual void visit(var_decl *) override {
       puts("var_decl");
     }
-    virtual void visit(if_stmt *l) override {
+    virtual void visit(if_stmt *) override {
       puts("if");
     }
-    virtual void visit(while_stmt *l) override {
+    virtual void visit(while_stmt *) override {
       puts("while");
     }
-    virtual void visit(call *l) override {
+    virtual void visit(call *) override {
       puts("call");
     }
 };

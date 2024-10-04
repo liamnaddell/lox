@@ -7,6 +7,7 @@
 #include <iostream>
 #include <optional>
 #include <variant>
+#include <format>
 
 using std::string;
 using std::vector;
@@ -18,9 +19,7 @@ using std::make_unique;
 using std::optional;
 using std::nullopt;
 using std::variant;
-
-//TODO: Fix this to ensure valid idents.
-using ident = string;
+using std::format;
 
 static inline bool is_num(char c) {
   return c >= '0' && c <= '9';
@@ -61,3 +60,13 @@ static inline bool is_valid_ident(string s) {
   
   return is_alpha(s[0]);
 }
+
+class ident {
+  private:
+    string inner;
+  public:
+    ident(string i) {
+      assert(is_valid_ident(i));
+      inner = i;
+    };
+};

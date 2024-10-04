@@ -195,10 +195,11 @@ class fn_decl: public decl {
     unique_ptr<block> fn_def;
     virtual void accept(visitor &v);
     fn_decl(ident name, unique_ptr<block> fn_def): name(name) {
-	args.reserve(8);
+      this->fn_def=move(fn_def);
+      args.reserve(8);
     }
     void push_arg(ident &b) {
-	args.push_back(b);
+      args.push_back(b);
     }
 };
 
@@ -256,9 +257,9 @@ class if_stmt: public stmt {
   unique_ptr<stmt> else_stmt;
   virtual void accept(visitor &v);
   if_stmt(unique_ptr<expr> condition, unique_ptr<stmt> then_stmt, unique_ptr<stmt> else_stmt) {
-    condition=move(condition);
-    then_stmt=move(then_stmt);
-    else_stmt=move(else_stmt);
+    this->condition=move(condition);
+    this->then_stmt=move(then_stmt);
+    this->else_stmt=move(else_stmt);
   }
 };
 
@@ -268,8 +269,8 @@ class while_stmt: public stmt {
   unique_ptr<stmt> do_stmt;
   virtual void accept(visitor &v);
   while_stmt(unique_ptr<expr> is_true, unique_ptr<stmt> do_stmt) {
-    is_true=move(is_true);
-    do_stmt=move(do_stmt);
+    this->is_true=move(is_true);
+    this->do_stmt=move(do_stmt);
   }
 };
 
@@ -292,16 +293,20 @@ class literal : public expr {
   virtual void accept(visitor &) {}
   literal(token &tkn) {
     switch (tkn.type) {
-	case IDENTIFIER:
-	case STRING:
-	  this->lit = tkn.lexeme;
-	  break;
-	case NUMBER:
-	  this->lit = tkn.literal;
-	  break;
-	default:
-	  assert(false);
+      case IDENTIFIER:
+      case STRING:
+        this->lit = tkn.lexeme;
+        break;
+      case NUMBER:
+        this->lit = tkn.literal;
+        break;
+      default:
+        assert(false);
     }
+  }
+  string as_string() {
+    //TODO: Fix
+    return format("[literal: {}]",std::get<string>(lit));
   }
 };
 
@@ -357,18 +362,18 @@ class ast {
 
 class visitor {
   public:
-    virtual void visit(program *l) {};
-    virtual void visit(literal *l) {};
-    virtual void visit(binary *l) {};
-    virtual void visit(unary *l) {};
-    virtual void visit(block *l) {};
-    virtual void visit(fn_decl *l) {};
-    virtual void visit(return_stmt *l) {};
-    virtual void visit(print_stmt *l) {};
-    virtual void visit(var_decl *l) {};
-    virtual void visit(if_stmt *l) {};
-    virtual void visit(while_stmt *l) {};
-    virtual void visit(call *l) {};
+    virtual void visit(program *) {};
+    virtual void visit(literal *) {};
+    virtual void visit(binary *) {};
+    virtual void visit(unary *) {};
+    virtual void visit(block *) {};
+    virtual void visit(fn_decl *) {};
+    virtual void visit(return_stmt *) {};
+    virtual void visit(print_stmt *) {};
+    virtual void visit(var_decl *) {};
+    virtual void visit(if_stmt *) {};
+    virtual void visit(while_stmt *) {};
+    virtual void visit(call *) {};
 };
 
 

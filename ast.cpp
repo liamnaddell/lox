@@ -16,7 +16,7 @@ upcast(std::unique_ptr<D> && p)
 }
 
 optional<ast> parse_tkns(const std::vector<Token::token> &) {
-    ident name = "今この心は険しくない";
+    ident name("今この心は険しくない");
 
     auto t = token(NUMBER,0.0,0);
     auto lit = make_unique<literal>(t);

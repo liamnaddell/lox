@@ -11,4 +11,4 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_EXTENSIONS False)
 remove_definitions("-DNDEBUG")
 
-add_executable(lox main.cpp error.cpp token.cpp ast.cpp visitor.cc)
+add_executable(lox main.cpp error.cpp token.cpp ast.cpp visitor.cpp)
