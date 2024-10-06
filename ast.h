@@ -207,25 +207,25 @@ public:
 
 class block {
   public:
-  vector<stmt *> stmts;
+  vector<unique_ptr<stmt>> stmts;
   virtual void accept(visitor &v);
 };
 
 class if_stmt {
   public:
-  expr *condition;
-  stmt *then_stmt;
-  stmt *else_stmt;
+  unique_ptr<expr> condition;
+  unique_ptr<stmt> then_stmt;
+  unique_ptr<stmt> else_stmt;
   virtual void accept(visitor &v);
-  if_stmt(expr *condition, stmt *then_stmt, stmt *else_stmt);
+  if_stmt(unique_ptr<expr> condition, unique_ptr<stmt> then_stmt, unique_ptr<stmt> else_stmt);
 };
 
 class while_stmt {
   public:
-  expr *is_true;
-  stmt *do_stmt;
+  unique_ptr<expr> is_true;
+  unique_ptr<stmt> do_stmt;
   virtual void accept(visitor &v);
-  while_stmt(expr *is_true, stmt *do_stmt);
+  while_stmt(unique_ptr<expr> is_true, unique_ptr<stmt> do_stmt);
 };
 
 class for_stmt {
@@ -248,7 +248,7 @@ class literal {
 class unary {
   //TODO: FIX!
   tkn_type op;
-  expr *sub;
+  unique_ptr<expr> sub;
   unary(tkn_type op, expr *sub);
 };
 
@@ -257,27 +257,27 @@ class call {
   public:
     ident fn_name;
     vector<unique_ptr<expr>> args;
-  call(ident fn_name);
+    call(ident fn_name);
 };
 
 class binary {
   public:
   tkn_type op;
-  expr *left;
-  expr *right;
+  unique_ptr<expr> left;
+  unique_ptr<expr> right;
   /* visitable */
   binary(tkn_type op, expr *left, expr *right);
 };
 
 class expr: public visitable {
   public:
-    variant<literal,unary,call,binary> sub;
-  virtual void accept(visitor &v);
+    variant<unique_ptr<literal>,unique_ptr<unary>,unique_ptr<call>,unique_ptr<binary>> sub;
+    virtual void accept(visitor &v);
 };
 
 class stmt: public visitable { 
   public:
-  variant<print_stmt,if_stmt,while_stmt,expr,return_stmt> sub;
+  variant<unique_ptr<print_stmt>,unique_ptr<if_stmt>,unique_ptr<while_stmt>,unique_ptr<expr>,unique_ptr<return_stmt>> sub;
   virtual void accept(visitor &v);
 };
 
@@ -286,13 +286,13 @@ class stmt: public visitable {
 // or fn decl
 class decl: public visitable {
 public:
-  variant<fn_decl*,stmt*,var_decl*,block*> sub;
+  variant<unique_ptr<fn_decl>,unique_ptr<stmt>,unique_ptr<var_decl>,unique_ptr<block>> sub;
   virtual void accept(visitor &v);
 };
 
 class program {
 public:
-  vector<decl *> stmts;
+  vector<unique_ptr<decl>> stmts;
   program();
 #if 0
   void push_decl(unique_ptr<decl> d) {

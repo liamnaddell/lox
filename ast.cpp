@@ -84,10 +84,12 @@ void var_decl::accept(visitor &v) {
   this->value->accept(v);
 }
 
+#if 0
 void block::accept(visitor &v) {
   for (stmt *s : stmts)
     s->accept(v);
 }
+#endif
 
 #if 0
 void visitor::visit(call &) { }
