@@ -1,3 +1,4 @@
+#pragma once
 /* Forward declaration */
 class literal;
 class binary;
@@ -14,3 +15,4 @@ class return_stmt;
 class var_decl;
 class print_stmt;
 class fn_decl;
+class stmt;

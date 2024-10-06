@@ -161,71 +161,38 @@ TODO: Another challenge, coding up environments, specifically wrt closures.
  *  The same parse sequence would work starting from the right. Such a rule must be applied to n-ary operators.
  */
 
-
-
-// Toplev declarations
-// either stmt, block, or var decl
-// or fn decl
-class decl: public visitable {
-public:
-  int a;
-};
-
-class program : public visitable {
-public:
-  vector<unique_ptr<decl>> stmts;
-  program() {
-    stmts.reserve(8);
-  }
-  void push_decl(unique_ptr<decl> d) {
-      stmts.push_back(move(d));
-  }
-  virtual void accept(visitor &v);
-};
-
-class literal;
-class block;
-
-class fn_decl: public decl {
+class fn_decl {
   public:
     //fn name
-    //TODO: Fix literal -> ident conv
     ident name;
     vector<ident> args;
-    unique_ptr<block> fn_def;
+    block *fn_def;
     virtual void accept(visitor &v);
+#if 0
     fn_decl(ident name, unique_ptr<block> fn_def): name(name) {
       this->fn_def=move(fn_def);
       args.reserve(8);
     }
+#endif
+    fn_decl(ident name, unique_ptr<block> fn_def);
     void push_arg(ident &b) {
       args.push_back(b);
     }
 };
 
-/*
- * Could be one of:
- *  expr, for, if, print, return, while, or block.
- */
-
-class stmt: public decl { };
 
 class return_stmt {
     virtual void accept(visitor &) {};
 };
 
-class expr; 
-
-class print_stmt: public stmt {
+class print_stmt {
 public:
-  unique_ptr<expr> to_print;
+  expr *to_print;
   virtual void accept(visitor &v);
-  print_stmt(unique_ptr<expr> v) {
-    to_print=move(v);
-  }
+  print_stmt(unique_ptr<expr> &&v);
 };
 
-class var_decl: public decl {
+class var_decl {
 public:
   /*
    * var x = value
@@ -233,58 +200,59 @@ public:
    * value is the value
    */
   ident name;
-  unique_ptr<expr> value;
+  expr *value;
   virtual void accept(visitor &v);
-  var_decl(ident name, unique_ptr<expr> v): name(name) {
-    value = move(v);
-  }
+  var_decl(ident name, unique_ptr<expr> v);
 };
 //TODO: Formatting w/ clang-format rules.
 
-class block: public decl {
+class block {
   public:
-  vector<unique_ptr<stmt>> stmts;
+  vector<stmt *> stmts;
   virtual void accept(visitor &v);
+#if 0
   void push_stmt(unique_ptr<stmt> s) {
       stmts.push_back(move(s));
   }
+#endif
 };
 
-class if_stmt: public stmt {
+class if_stmt {
   public:
-  unique_ptr<expr> condition;
-  unique_ptr<stmt> then_stmt;
-  unique_ptr<stmt> else_stmt;
+  expr *condition;
+  stmt *then_stmt;
+  stmt *else_stmt;
   virtual void accept(visitor &v);
-  if_stmt(unique_ptr<expr> condition, unique_ptr<stmt> then_stmt, unique_ptr<stmt> else_stmt) {
+  if_stmt(unique_ptr<expr> condition, unique_ptr<stmt> then_stmt, unique_ptr<stmt> else_stmt);
+#if 0
+    {
     this->condition=move(condition);
     this->then_stmt=move(then_stmt);
     this->else_stmt=move(else_stmt);
   }
+#endif
 };
 
-class while_stmt: public stmt {
+class while_stmt {
   public:
-  unique_ptr<expr> is_true;
-  unique_ptr<stmt> do_stmt;
+  expr *is_true;
+  stmt *do_stmt;
   virtual void accept(visitor &v);
+  while_stmt(unique_ptr<expr> is_true, unique_ptr<stmt> do_stmt);
+#if 0
   while_stmt(unique_ptr<expr> is_true, unique_ptr<stmt> do_stmt) {
     this->is_true=move(is_true);
     this->do_stmt=move(do_stmt);
   }
+#endif
 };
 
 class for_stmt {
-    //Decornsyrup to while stmt.
-};
-
-class expr : public stmt {
-public:
-  unsigned locus;
+  //Decornsyrup to while stmt.
 };
 
 //TODO: These are dummy classes, see Expr.java for a more accurate set
-class literal : public expr {
+class literal {
   public:
   //TODO: Fix this later
   variant<string,unsigned> lit;
@@ -310,48 +278,87 @@ class literal : public expr {
   }
 };
 
-class unary : public expr {
+class unary {
   //TODO: FIX!
   tkn_type op;
-  unique_ptr<expr> sub;
+  expr *sub;
   /* visitable */
+#if 0
   virtual void accept(visitor &v) {
     sub->accept(v);
   }
   unary(tkn_type op, unique_ptr<expr> sub): op(op) {
     this->sub=move(sub);
   }
+#endif
+  unary(tkn_type op, unique_ptr<expr> sub);
 };
 
 //TODO: crafty int guy thinks calls are unary operators
 //I think that's 心の病気.
 //My way is 正義.
-class call : public expr {
+class call {
   public:
     ident fn_name;
-    vector<unique_ptr<expr>> args = {};
+    vector<unique_ptr<expr>> args;
+#if 0
   virtual void accept(visitor &v) {
     for (auto &a : args)
       a->accept(v);
   }
-  call(ident fn_name): fn_name(fn_name) {
-  }
+#endif
+  call(ident fn_name);
 };
 
-class binary : public expr {
+class binary {
   public:
   tkn_type op;
-  unique_ptr<expr> left;
-  unique_ptr<expr> right;
+  expr *left;
+  expr *right;
   /* visitable */
+#if 0
   virtual void accept(visitor &v) override {
     left->accept(v);
     right->accept(v);
   }
-  binary(tkn_type op, unique_ptr<expr> left, unique_ptr<expr> right): op(op) {
+#endif
+  binary(tkn_type op, unique_ptr<expr> left, unique_ptr<expr> right);
+#if 0
+  binary(tkn_type op, unique_ptr<expr> left, unique_ptr<expr> right);
+    {
     this->left = move(left);
     this->right = move(right);
   }
+#endif
+};
+
+class expr {
+  public:
+    variant<literal,unary,call,binary> sub;
+};
+
+class stmt { 
+  variant<print_stmt,if_stmt,while_stmt,expr,return_stmt> sub;
+};
+
+// Toplev declarations
+// either stmt, block, or var decl
+// or fn decl
+class decl {
+public:
+  variant<fn_decl*,stmt*,var_decl*,block*> sub;
+};
+
+class program {
+public:
+  vector<decl *> stmts;
+  program();
+#if 0
+  void push_decl(unique_ptr<decl> d) {
+      stmts.push_back(move(d));
+  }
+#endif
+  virtual void accept(visitor &v);
 };
 
 class ast {

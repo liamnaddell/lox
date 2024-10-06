@@ -1,1 +1,1 @@
-clang-format --style=Microsoft '*.h' *.cpp'
+clang-format -i --style=Microsoft '*.h' *.cpp'

@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
     return -2;
   }
 
-  for (auto tkn : tkns)
+  for (auto &tkn : tkns)
     std::cout << tkn.as_string() << ',' << '\n';
 
 
