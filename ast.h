@@ -1,7 +1,6 @@
 #pragma once
 #include "common.h"
 #include "token.h"
-#include "parser.h"
 
 using namespace Token;
 
@@ -160,8 +159,153 @@ TODO: Another challenge, coding up environments, specifically wrt closures.
 // };
 
 //TODO: Define visitor pattern
-class ast : public parser{
+class tkn_slice {
   public:
+  vector<token> &tkns;
+  unsigned start;
+  unsigned end;
+
+  // no way in hell
+  tkn_slice(vector<token> tkns, unsigned s, unsigned e): tkns(tkns), start(s), end(e) {}
+
+  unsigned size() {
+    assert(tkns.size() > (end-start));
+    return end - start;
+  }
+
+  token peek() {
+    assert (size() != 0);
+    return tkns[start];
+  }
+
+  // pop is supposed to remove no?
+  token pop() {
+    assert( start < end);
+    token t = tkns[start];
+    start++;
+    return t;
+  }
+  // maybe an advance func????????
+};
+
+class expr {
+  unsigned locus;
+  unsigned consumed;
+
+  public:
+  static unique_ptr<expr> parse(tkn_slice tkns) {}
+};
+
+//TODO: These are dummy classes, see Expr.java for a more accurate set
+class literal : public expr {
+  token tkn;
+  
+  public:
+  literal(token t): tkn(t) {}
+
+  static unique_ptr<literal> parse(tkn_slice tkns) {
+    if (tkns.size() != 1)
+      return nullptr;
+
+    // shouldnt we also pop here even tho it is a leaf node? so it knows 
+    // the slice is done?
+    token h = tkns.peek();
+    tkn_type t = h.get_type();
+
+    if (t == TRUE || t == NIL || t == FALSE || t == NUMBER || t == STRING) {
+      // ignoring vs code error for now
+      return make_unique<literal> (*(new literal(h)));
+    }
+    return nullptr;
+  };
+};
+
+class unary : public expr {
+  tkn_type op;
+  unique_ptr<expr> sub;
+
+  public:
+  unary(tkn_type op, unique_ptr<expr> sub): op(op) {
+    this->sub = move(sub);
+   }
+
+  static unique_ptr<unary> parse(tkn_slice tkns) {
+    token op = tkns.pop();
+    //TODO: Valdiate this BS, and convert to a specific operator enum.
+    // auto e = make_unique<expr>(expr::parse(tkns));
+    unique_ptr e = expr::parse(tkns);
+    if (e == nullptr)
+      return nullptr;
+    // return make_unique<unary> (new unary(op.get_type(), move(e)));
+    return unique_ptr<unary> (new unary(op.get_type(), move(e)));
+  }
+
+};
+
+// I HATE THIS AND IDK IF THERE IS ANY OTHER WAY
+
+static void slicer(vector<token> &arr, unsigned s, unsigned e, vector<token> *sliced) {
+    auto start = arr.begin() + s;
+    auto end = arr.begin() + e + 1;
+    copy(start, end, (*sliced).begin());
+};
+
+
+class binary : public expr {
+  tkn_type op;
+  unique_ptr<expr> left;
+  unique_ptr<expr> right;
+
+  public:
+  binary(tkn_type op, unique_ptr<expr> left, unique_ptr<expr> right): op(op){ 
+    this->left = move(left);
+    this->right = move(right);
+  }
+
+  static unique_ptr<binary> parse(tkn_slice tkns) {
+    // JUST PUTTING THIS HERE, NO WAY THIS IS ACC CORRECT
+    // find op location -- need to fix this, looks way too bad and im sorry:
+    token *op = nullptr;
+    unsigned find_op = -1;
+    for (token t: tkns.tkns) {
+      if (t.get_type() == AND || t.get_type() == OR ||t.get_type() == EQUAL || t.get_type() == GREATER || t.get_type() ==  GREATER_EQUAL || t.get_type() == LESS || t.get_type() == LESS_EQUAL) {
+        *op = t;
+        find_op++;
+      };
+    };
+
+    if (op == nullptr)
+      return nullptr;
+
+    vector<token> *l = nullptr;
+    vector<token> *r = nullptr;
+    slicer(tkns.tkns, tkns.start, find_op, l);
+    slicer(tkns.tkns, find_op, tkns.end, r);
+    if ( l == nullptr || r == nullptr)
+      return nullptr;
+
+    // auto left = make_unique<expr>(expr::parse(*(new tkn_slice((*l), tkns.start, find_op))));
+    // auto right = make_unique<expr>(expr::parse(*(new tkn_slice((*r), find_op, tkns.end))));
+    unique_ptr left = expr::parse(*(new tkn_slice((*l), tkns.start, find_op)));
+    unique_ptr right = expr::parse(*(new tkn_slice((*r), find_op, tkns.end)));
+    if (left == nullptr || right == nullptr)
+      return nullptr;
+
+    // return make_unique<binary> (new binary((*op).get_type(), move(left), move(right)));
+    return unique_ptr<binary> (new binary((*op).get_type(), move(left), move(right)));
+  }
+
+};
+
+class grouping : public expr {
+  tkn_type op;
+
+  static unsigned parse();
+};
+
+class ast {
+  public:
+  unique_ptr<expr> root;
   bool eval(void);
   //initialize parser, and force it to try and parse an expression. We need to seed the parser with the full user input.
   //every parsable item inherits from the abstract parser class.
@@ -174,34 +318,6 @@ class ast : public parser{
     // ...
     // error("nice expression jackass")
   // }
-};
-
-class expr : public parser {
-  unsigned locus;
-  // const vector<
-};
-
-//TODO: These are dummy classes, see Expr.java for a more accurate set
-class literal : public expr, public parser {
-  token tkn;
-};
-
-class unary : public expr, public parser {
-  tkn_type op;
-  unique_ptr<expr> sub;
-
-  unsigned parse() ; 
-
-};
-
-class binary : public expr, public parser {
-  tkn_type op;
-  unique_ptr<expr> left;
-  unique_ptr<expr> right;
-};
-
-class grouping : public expr, public parser {
-  tkn_type op;
 };
 
 bool parse_tkns(const std::vector<Token::token> &tkns, ast &ast);

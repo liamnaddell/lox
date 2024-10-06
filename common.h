@@ -12,7 +12,8 @@ using std::cout;
 using std::cin;
 using std::cerr;
 using std::unique_ptr;
-
+using std::move;
+using std::make_unique;
 
 static inline bool is_num(char c) {
   return c >= '0' && c <= '9';
