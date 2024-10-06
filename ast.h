@@ -166,7 +166,7 @@ class fn_decl {
     //fn name
     ident name;
     vector<ident> args;
-    block *fn_def;
+    unique_ptr<block> fn_def;
     virtual void accept(visitor &v);
 #if 0
     fn_decl(ident name, unique_ptr<block> fn_def): name(name) {
@@ -174,7 +174,7 @@ class fn_decl {
       args.reserve(8);
     }
 #endif
-    fn_decl(ident name, block *fn_def);
+    fn_decl(ident name, unique_ptr<block> fn_def);
     void push_arg(ident &b) {
       args.push_back(b);
     }

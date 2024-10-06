@@ -149,4 +149,14 @@ void print_ast(const ast &tree) {
   tree.root->accept(v);
 }
 
+fn_decl::fn_decl(ident i, unique_ptr<block> fn_def): name(i) {
+  this->fn_def = move(fn_def);
+}
+void decl::accept(visitor &v) { }
+void stmt::accept(visitor &v) {}
+void block::accept(visitor &v) {}
+void if_stmt::accept(visitor &v) {}
+void while_stmt::accept(visitor &v) {}
+void expr::accept(visitor &v) {}
+
 } /* namespace AST */
