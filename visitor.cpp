@@ -2,46 +2,7 @@
 
 namespace AST {
 
-/*
-void visitor::visit(program &l) {
-  for (unique_ptr<decl> &s : l.stmts)
-    *s.accept(this);
-}
-
-*/
-
-void fn_decl::accept(visitor &v) {
-    this->fn_def->accept(v);
-}
-
-void print_stmt::accept(visitor &v) {
-  this->to_print->accept(v);
-}
-
-void var_decl::accept(visitor &v) {
-  this->value->accept(v);
-}
-
-void block::accept(visitor &v) {
-  for (unique_ptr<stmt> &s : stmts)
-    s->accept(v);
-}
-
-#if 0
-void visitor::visit(call &) { }
-void visitor::visit(program &) {}
-void visitor::visit(literal &) {}
-void visitor::visit(binary &) {}
-void visitor::visit(unary &) {}
-void visitor::visit(block &) {}
-void visitor::visit(fn_decl &) {}
-void visitor::visit(return_stmt &) {}
-void visitor::visit(var_decl &) {}
-void visitor::visit(if_stmt &) {}
-void visitor::visit(while_stmt &) {}
-void visitor::visit(print_stmt &) {}
-#endif
-
+//TODO: Move somewhere else? Other header?
 class ast_printer : public visitor {
   public:
     void visit(program *) override {

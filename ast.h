@@ -174,7 +174,7 @@ class fn_decl {
       args.reserve(8);
     }
 #endif
-    fn_decl(ident name, unique_ptr<block> fn_def);
+    fn_decl(ident name, block *fn_def);
     void push_arg(ident &b) {
       args.push_back(b);
     }
@@ -189,7 +189,7 @@ class print_stmt {
 public:
   expr *to_print;
   virtual void accept(visitor &v);
-  print_stmt(unique_ptr<expr> &&v);
+  print_stmt(expr *v);
 };
 
 class var_decl {
@@ -202,19 +202,13 @@ public:
   ident name;
   expr *value;
   virtual void accept(visitor &v);
-  var_decl(ident name, unique_ptr<expr> v);
+  var_decl(ident name, expr *v);
 };
-//TODO: Formatting w/ clang-format rules.
 
 class block {
   public:
   vector<stmt *> stmts;
   virtual void accept(visitor &v);
-#if 0
-  void push_stmt(unique_ptr<stmt> s) {
-      stmts.push_back(move(s));
-  }
-#endif
 };
 
 class if_stmt {
@@ -223,14 +217,7 @@ class if_stmt {
   stmt *then_stmt;
   stmt *else_stmt;
   virtual void accept(visitor &v);
-  if_stmt(unique_ptr<expr> condition, unique_ptr<stmt> then_stmt, unique_ptr<stmt> else_stmt);
-#if 0
-    {
-    this->condition=move(condition);
-    this->then_stmt=move(then_stmt);
-    this->else_stmt=move(else_stmt);
-  }
-#endif
+  if_stmt(expr *condition, stmt *then_stmt, stmt *else_stmt);
 };
 
 class while_stmt {
@@ -238,40 +225,20 @@ class while_stmt {
   expr *is_true;
   stmt *do_stmt;
   virtual void accept(visitor &v);
-  while_stmt(unique_ptr<expr> is_true, unique_ptr<stmt> do_stmt);
-#if 0
-  while_stmt(unique_ptr<expr> is_true, unique_ptr<stmt> do_stmt) {
-    this->is_true=move(is_true);
-    this->do_stmt=move(do_stmt);
-  }
-#endif
+  while_stmt(expr *is_true, stmt *do_stmt);
 };
 
 class for_stmt {
   //Decornsyrup to while stmt.
 };
 
-//TODO: These are dummy classes, see Expr.java for a more accurate set
 class literal {
   public:
-  //TODO: Fix this later
   variant<string,unsigned> lit;
   /* visitable */
-  //TODO: Is this required? Isn't default behavior just to rage quit and call nothing?
   virtual void accept(visitor &) {}
-  literal(token &tkn) {
-    switch (tkn.type) {
-      case IDENTIFIER:
-      case STRING:
-        this->lit = tkn.lexeme;
-        break;
-      case NUMBER:
-        this->lit = tkn.literal;
-        break;
-      default:
-        assert(false);
-    }
-  }
+  literal(token &tkn);
+
   string as_string() {
     //TODO: Fix
     return format("[literal: {}]",std::get<string>(lit));
@@ -282,31 +249,14 @@ class unary {
   //TODO: FIX!
   tkn_type op;
   expr *sub;
-  /* visitable */
-#if 0
-  virtual void accept(visitor &v) {
-    sub->accept(v);
-  }
-  unary(tkn_type op, unique_ptr<expr> sub): op(op) {
-    this->sub=move(sub);
-  }
-#endif
-  unary(tkn_type op, unique_ptr<expr> sub);
+  unary(tkn_type op, expr *sub);
 };
 
 //TODO: crafty int guy thinks calls are unary operators
-//I think that's 心の病気.
-//My way is 正義.
 class call {
   public:
     ident fn_name;
     vector<unique_ptr<expr>> args;
-#if 0
-  virtual void accept(visitor &v) {
-    for (auto &a : args)
-      a->accept(v);
-  }
-#endif
   call(ident fn_name);
 };
 
@@ -316,37 +266,28 @@ class binary {
   expr *left;
   expr *right;
   /* visitable */
-#if 0
-  virtual void accept(visitor &v) override {
-    left->accept(v);
-    right->accept(v);
-  }
-#endif
-  binary(tkn_type op, unique_ptr<expr> left, unique_ptr<expr> right);
-#if 0
-  binary(tkn_type op, unique_ptr<expr> left, unique_ptr<expr> right);
-    {
-    this->left = move(left);
-    this->right = move(right);
-  }
-#endif
+  binary(tkn_type op, expr *left, expr *right);
 };
 
-class expr {
+class expr: public visitable {
   public:
     variant<literal,unary,call,binary> sub;
+  virtual void accept(visitor &v);
 };
 
-class stmt { 
+class stmt: public visitable { 
+  public:
   variant<print_stmt,if_stmt,while_stmt,expr,return_stmt> sub;
+  virtual void accept(visitor &v);
 };
 
 // Toplev declarations
 // either stmt, block, or var decl
 // or fn decl
-class decl {
+class decl: public visitable {
 public:
   variant<fn_decl*,stmt*,var_decl*,block*> sub;
+  virtual void accept(visitor &v);
 };
 
 class program {

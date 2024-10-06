@@ -1,5 +1,6 @@
 #pragma once
 /* Forward declaration */
+namespace AST {
 class literal;
 class binary;
 class unary;
@@ -16,3 +17,4 @@ class var_decl;
 class print_stmt;
 class fn_decl;
 class stmt;
+}
