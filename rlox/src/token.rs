@@ -25,8 +25,8 @@ pub enum TokenType {
 
 #[derive(Debug)]
 pub struct Token {
-    tkn_type: TokenType,
-    locus:usize,
+    pub tkn_type: TokenType,
+    pub locus:usize,
 }
 
 fn tokenize(_source: &String) -> Vec<Token> {
