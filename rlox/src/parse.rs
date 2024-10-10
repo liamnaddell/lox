@@ -81,6 +81,16 @@ pub enum UnaryOp {
     Sub,
     Neg,
 }
+
+impl UnaryOp {
+    fn from_tkntype(t: &TokenType) -> Option<UnaryOp> {
+        match t {
+            TokenType::Minus => Some(UnaryOp::Sub),
+            TokenType::Bang => Some(UnaryOp::Neg),
+            _ => None
+        }
+    }
+}
 /*
  * COMPILER BUG:
  * FIX: Including And twice results in silly diag error from BinOp (Debug) derive.
@@ -210,6 +220,28 @@ pub struct Unary {
     pub locus: usize,
 }
 
+impl Unary {
+    fn parse(mut ts: TknSlice) -> Result<Box<Unary>> {
+        let loc = ts.loc(0);
+        //should only be called by expr which checks this.
+        let op: &TokenType = &ts.pop_or("Expected unary operator")?.tkn_type;
+
+        let una_op = {
+            if let Some(u) = UnaryOp::from_tkntype(&op) {
+                //this sets una_op to u bcs no ;
+                u
+            } else {
+                //this returns from parse
+                return mk_err(ts.loc(0),"Not a unary operator");
+            }
+        };
+
+        let sub_expr = Expr::parse(ts)?;
+
+        return Ok(Box::new(Unary { op: una_op, sub: sub_expr, locus: loc}));
+    }
+}
+
 #[derive(Debug)]
 pub struct Call {
     pub locus: usize,
@@ -249,13 +281,24 @@ impl Expr {
                 ts = ts.sub(1,ts.size()-1);
         }
 
+        //First try and parse a literal, since it's easy.
         if ts.size() == 1 {
-            unimplemented!();
-            //return Literal::parse(ts);
+            //wrong type :(
+            let lit: Box<Literal> = Literal::parse(ts)?;
+
+            //this is a move
+            let lit_expr: Box<Expr> = Box::new(Expr::Literal(*lit));
+            return Ok(lit_expr);
         }
 
-        //First, try to parse a unary.
+        //Second, try to parse a unary.
+        if ts.size() > 1 && UnaryOp::from_tkntype(&ts.get(0).tkn_type).is_some() {
+            let una: Box<Unary> = Unary::parse(ts)?;
 
+            //this is a move
+            let una_expr: Box<Expr> = Box::new(Expr::Unary(*una));
+            return Ok(una_expr);
+        }
 
 
         //whatever IS parsed must be 
