@@ -1,5 +1,6 @@
 use crate::token::*;
 use std::result::Result as RResult;
+use std::collections::HashMap;
 
 //This is a type alias.
 //Result is the Maybe monad, but instead of Some or None,
@@ -17,11 +18,15 @@ struct CompileError {
 //basically rust extends haskell's algebraic type system to include the lifetime of objects.
 struct TknSlice<'a> {
     tkns: &'a Vec<Token>,
-    pub start: usize,
-    pub end: usize,
+    start: usize,
+    end: usize,
 }
 
 impl<'a> TknSlice<'a> {
+    fn loc(&self, index: usize) -> usize {
+        assert!(index < self.size());
+        return self.start + index;
+    }
     //str is a reference to stack or heap allocated string data
     //String is a heap-allocated string.
     //This is actually pretty advanced rust: I'm saying "Return a token, which lives as long as
@@ -35,11 +40,24 @@ impl<'a> TknSlice<'a> {
         }
     }
     fn get(&self, index: usize) -> &'a Token {
-        if index < self.start || index >= self.end {
+        if index >= self.size() {
             panic!("Compiler error");
         }
-        return &self.tkns[index];
+        return &self.tkns[self.start + index];
+    }
 
+    fn size(&self) -> usize {
+        return self.end - self.start;
+    }
+
+    fn sub(&self,new_start:usize,mut new_end:usize) -> TknSlice<'a> {
+        assert!(self.start >= new_start);
+        assert!(new_end <= self.end);
+
+        if new_end == 0 {
+            new_end = self.end;
+        }
+        return TknSlice { tkns: self.tkns,start:new_start,end:new_end };
     }
 }
 
@@ -79,7 +97,7 @@ pub enum BinOp {
 }
 */
 
-#[derive(Debug)]
+#[derive(Hash, Eq, PartialEq, Debug)]
 pub enum BinOp {
     Minus, Plus, Star,
     Bang, BangEqual,
@@ -215,8 +233,31 @@ pub enum Expr {
     Binary(Binary),
 }
 
+fn mk_err<T>(locus:usize,msg: &str) -> Result<T> {
+    return Err(CompileError::from_str(locus,msg));
+}
+
 impl Expr {
-    fn parse(mut ts: TknSlice) -> Result<Box<Literal>> {
+    fn parse(mut ts: TknSlice) -> Result<Box<Expr>> {
+        if ts.size() == 0 {
+            return mk_err(ts.loc(0),"Emptiness");
+        }
+        //TODO: UGGO CODE
+        //Skip outer parenthesis
+        if ts.size() > 2 && ts.get(0).tkn_type == TokenType::LeftParen &&
+            ts.get(ts.size()-1).tkn_type == TokenType::RightParen {
+                ts = ts.sub(1,ts.size()-1);
+        }
+
+        if ts.size() == 1 {
+            unimplemented!();
+            //return Literal::parse(ts);
+        }
+
+        //First, try to parse a unary.
+
+
+
         //whatever IS parsed must be 
         //a) A trivial grouping (<expr>)
         //b) A parser suggestive grouping (<expr>) AND (<expr>).
@@ -240,16 +281,9 @@ impl Expr {
         let mut head = ts.end;
         let mut paren_order = 0;
         //mapping from operator -> location wrt ts.
-        let mut oper_loc: [(BinOp, usize);1] = [
-            (BinOp::And,0)
-        ];
+        let mut oper_loc: HashMap<BinOp,usize> = HashMap::new();
 
-        //TODO: Refactor,
-        //1. Add function to token slice to skip parenthesized blocks. 
-        //2. Add trivial skip for trivial parenthesis.
-        //3. make binop parse binops.
-        //4. if binop parse fails, try unop.
-        //5. if unop fails, try call, then try literal.
+        //Find all the operators.
         while head != ts.start {
             let cur_tkn = ts.get(head);
             if cur_tkn.tkn_type == TokenType::RightParen {
@@ -264,9 +298,25 @@ impl Expr {
 
             let maybe_bop = BinOp::from_tkntype(&cur_tkn.tkn_type);
 
-            if let Some(bop) = maybe_bop {
+            if maybe_bop.is_none() {
+                head-=1;
+                continue;
             }
+
+            let bop: BinOp = maybe_bop.unwrap();
+            oper_loc.insert(bop,head);
             head-=1;
+        }
+
+        //TODO: Find highest precedence operator location
+        let hop_loc: usize = 0;
+        let bop: BinOp = BinOp::And;
+
+        //there was a bin op.
+        if (hop_loc != 0) {
+            let left: Box<Expr> = Expr::parse(ts.sub(0,hop_loc))?;
+            let right: Box<Expr> = Expr::parse(ts.sub(hop_loc+1,0))?;
+            return Ok(Box::new(Expr::Binary(Binary {locus:hop_loc,op:bop,left,right})));
         }
 
         return Err(CompileError::from_str(0,"idk"));
