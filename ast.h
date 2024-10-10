@@ -1,12 +1,21 @@
 #pragma once
 #include "common.h"
 #include "token.h"
+#include "ast_fwd.h"
 
 using namespace Token;
 
 namespace AST {
 
-  /*
+
+class visitor;
+class visitable {
+  public:
+  virtual void accept(visitor &v) = 0;
+};
+
+
+/*
 TODO: Represent the following grammar (at first)
 expression     → literal
                | unary
@@ -92,7 +101,7 @@ function       → IDENTIFIER "(" parameters? ")" block ;
 parameters     → IDENTIFIER ( "," IDENTIFIER )* ;
 
 And finally, for return:
-  statement      → exprStmt
+  statement    → exprStmt
                | forStmt
                | ifStmt
                | printStmt
@@ -152,32 +161,171 @@ TODO: Another challenge, coding up environments, specifically wrt closures.
  *  The same parse sequence would work starting from the right. Such a rule must be applied to n-ary operators.
  */
 
-//TODO: Define visitor pattern
-class ast {
+class fn_decl {
   public:
-  bool eval(void);
+    //fn name
+    ident name;
+    vector<ident> args;
+    unique_ptr<block> fn_def;
+    virtual void accept(visitor &v);
+#if 0
+    fn_decl(ident name, unique_ptr<block> fn_def): name(name) {
+      this->fn_def=move(fn_def);
+      args.reserve(8);
+    }
+#endif
+    fn_decl(ident name, unique_ptr<block> fn_def);
+    void push_arg(ident &b) {
+      args.push_back(b);
+    }
 };
 
-class expr {
-  unsigned locus;
+
+class return_stmt {
+    virtual void accept(visitor &) {};
 };
 
-//TODO: These are dummy classes, see Expr.java for a more accurate set
-class literal : public expr {
-  token tkn;
+class print_stmt {
+public:
+  expr *to_print;
+  virtual void accept(visitor &v);
+  print_stmt(expr *v);
 };
 
-class unary : public expr {
+class var_decl {
+public:
+  /*
+   * var x = value
+   * x is the ident
+   * value is the value
+   */
+  ident name;
+  expr *value;
+  virtual void accept(visitor &v);
+  var_decl(ident name, expr *v);
+};
+
+class block {
+  public:
+  vector<unique_ptr<stmt>> stmts;
+  virtual void accept(visitor &v);
+};
+
+class if_stmt {
+  public:
+  unique_ptr<expr> condition;
+  unique_ptr<stmt> then_stmt;
+  unique_ptr<stmt> else_stmt;
+  virtual void accept(visitor &v);
+  if_stmt(unique_ptr<expr> condition, unique_ptr<stmt> then_stmt, unique_ptr<stmt> else_stmt);
+};
+
+class while_stmt {
+  public:
+  unique_ptr<expr> is_true;
+  unique_ptr<stmt> do_stmt;
+  virtual void accept(visitor &v);
+  while_stmt(unique_ptr<expr> is_true, unique_ptr<stmt> do_stmt);
+};
+
+class for_stmt {
+  //Decornsyrup to while stmt.
+};
+
+class literal {
+  public:
+  variant<string,unsigned> lit;
+  /* visitable */
+  virtual void accept(visitor &) {}
+  literal(token &tkn);
+
+  string as_string() {
+    //TODO: Fix
+    return format("[literal: {}]",std::get<string>(lit));
+  }
+};
+
+class unary {
+  //TODO: FIX!
   tkn_type op;
   unique_ptr<expr> sub;
+  unary(tkn_type op, expr *sub);
 };
 
-class binary : public expr {
+//TODO: crafty int guy thinks calls are unary operators
+class call {
+  public:
+    ident fn_name;
+    vector<unique_ptr<expr>> args;
+    call(ident fn_name);
+};
+
+class binary {
+  public:
   tkn_type op;
   unique_ptr<expr> left;
   unique_ptr<expr> right;
+  /* visitable */
+  binary(tkn_type op, expr *left, expr *right);
 };
 
-bool parse_tkns(const std::vector<Token::token> &tkns, ast &ast);
+class expr: public visitable {
+  public:
+    variant<unique_ptr<literal>,unique_ptr<unary>,unique_ptr<call>,unique_ptr<binary>> sub;
+    virtual void accept(visitor &v);
+};
+
+class stmt: public visitable { 
+  public:
+  variant<unique_ptr<print_stmt>,unique_ptr<if_stmt>,unique_ptr<while_stmt>,unique_ptr<expr>,unique_ptr<return_stmt>> sub;
+  virtual void accept(visitor &v);
+};
+
+// Toplev declarations
+// either stmt, block, or var decl
+// or fn decl
+class decl: public visitable {
+public:
+  variant<unique_ptr<fn_decl>,unique_ptr<stmt>,unique_ptr<var_decl>,unique_ptr<block>> sub;
+  virtual void accept(visitor &v);
+};
+
+class program {
+public:
+  vector<unique_ptr<decl>> stmts;
+  program();
+#if 0
+  void push_decl(unique_ptr<decl> d) {
+      stmts.push_back(move(d));
+  }
+#endif
+  virtual void accept(visitor &v);
+};
+
+class ast {
+  public:
+    unique_ptr<program> root;
+  bool eval(void);
+};
+
+class visitor {
+  public:
+    virtual void visit(program *) {};
+    virtual void visit(literal *) {};
+    virtual void visit(binary *) {};
+    virtual void visit(unary *) {};
+    virtual void visit(block *) {};
+    virtual void visit(fn_decl *) {};
+    virtual void visit(return_stmt *) {};
+    virtual void visit(print_stmt *) {};
+    virtual void visit(var_decl *) {};
+    virtual void visit(if_stmt *) {};
+    virtual void visit(while_stmt *) {};
+    virtual void visit(call *) {};
+};
+
+
+optional<ast> parse_tkns(const std::vector<Token::token> &tkns);
+void print_ast(const ast&);
 
 } /* namespace AST */

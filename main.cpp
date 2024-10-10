@@ -40,18 +40,22 @@ int main(int argc, char *argv[]) {
     return -2;
   }
 
-  for (auto tkn : tkns)
+  for (auto &tkn : tkns)
     std::cout << tkn.as_string() << ',' << '\n';
 
 
   //TODO: T>I>N>A
   AST::ast ast;
-  res = AST::parse_tkns(tkns,ast);
+  optional<AST::ast> a = AST::parse_tkns(tkns);
 
-  if (res == false) {
+  if (!a.has_value()) {
     Error::emit("[畜生] Parse failed");
     return -3;
   }
+
+  puts("===DUMPING AST===");
+  AST::print_ast(*a);
+  puts("===/DUMPING AST===");
 
   res = ast.eval();
   if (res == false) {

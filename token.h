@@ -35,7 +35,7 @@ class token {
   //TODO: This is a waste of space but you can't put strings in unions, 
   //and inheritence is way worse
   /* Identifier */
-  std::string lexeme;
+  std::string lexeme = "";
   /* TODO: Type is probably wrong */
   unsigned literal;
 
@@ -49,6 +49,13 @@ class token {
 
   /* simple token with no associated data */
   token(tkn_type type, unsigned locus);
+  token& operator=(token x) {
+      type = x.type;
+      lexeme = x.lexeme;
+      literal = x.literal;
+      locus = x.locus;
+      return *this;
+    }
 
   std::string as_string();
 };
