@@ -1,5 +1,5 @@
 
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 pub enum TokenType {
   //scream cased to avoid keyword conflicts with cpp
   LeftParen, 

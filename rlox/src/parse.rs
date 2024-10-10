@@ -17,8 +17,8 @@ struct CompileError {
 //basically rust extends haskell's algebraic type system to include the lifetime of objects.
 struct TknSlice<'a> {
     tkns: &'a Vec<Token>,
-    start: usize,
-    end: usize,
+    pub start: usize,
+    pub end: usize,
 }
 
 impl<'a> TknSlice<'a> {
@@ -33,6 +33,13 @@ impl<'a> TknSlice<'a> {
         } else {
             return Err(CompileError::from_str(self.start,err));
         }
+    }
+    fn get(&self, index: usize) -> &'a Token {
+        if index < self.start || index >= self.end {
+            panic!("Compiler error");
+        }
+        return &self.tkns[index];
+
     }
 }
 
@@ -56,11 +63,39 @@ pub enum UnaryOp {
     Sub,
     Neg,
 }
-
+/*
+ * COMPILER BUG:
+ * FIX: Including And twice results in silly diag error from BinOp (Debug) derive.
 #[derive(Debug)]
 pub enum BinOp {
     //add the others
-    And
+    And = 0,
+    Minus, Plus, Semicolon, Slash, Star,
+    Bang, BangEqual,
+    Equal, EqualEqual,
+    Greater, GreaterEqual,
+    Less, LessEqual,
+    And, Or,
+}
+*/
+
+#[derive(Debug)]
+pub enum BinOp {
+    Minus, Plus, Star,
+    Bang, BangEqual,
+    Equal, EqualEqual,
+    Greater, GreaterEqual,
+    Less, LessEqual,
+    And, Or,
+}
+
+impl BinOp {
+    fn from_tkntype(t: &TokenType) -> Option<BinOp> {
+        match t {
+            TokenType::And => Some(BinOp::And),
+            _ => None
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -178,6 +213,64 @@ pub enum Expr {
     Unary(Unary),
     Call(Call),
     Binary(Binary),
+}
+
+impl Expr {
+    fn parse(mut ts: TknSlice) -> Result<Box<Literal>> {
+        //whatever IS parsed must be 
+        //a) A trivial grouping (<expr>)
+        //b) A parser suggestive grouping (<expr>) AND (<expr>).
+        //
+        //In any case, we can only parse things that are in a 0-order grouping, or in a trivial
+        //grouping.
+        // * We must still handle operator precedence. 
+        //Algorithm:
+        //  0. Check for a trivial grouping, and perform trivial recursion.
+        //  1. Iterate through the tokens, ignoring tokens inside a grouping.
+        //  2. Build an array of <oper> -> <loc>, sorted by priority. 
+        //
+        //NOTE:
+        //  * We parse WEAK operators first. WEAK operators are higher up on the parse tree, and
+        //  thus should be parsed FIRST, so == is parsed before -(<expr>).
+        //  All unary operators are STRONG!!
+        //NOTE:
+        //  * As a rule, there is NO backtracking. we are NOT attempting to parse operators until a
+        //  match occurs. We are attempting to parse, in a specific order. If one parse fails, the
+        //  entire parse fails. We will NOT recurse until a valid interpretation is found.
+        let mut head = ts.end;
+        let mut paren_order = 0;
+        //mapping from operator -> location wrt ts.
+        let mut oper_loc: [(BinOp, usize);1] = [
+            (BinOp::And,0)
+        ];
+
+        //TODO: Refactor,
+        //1. Add function to token slice to skip parenthesized blocks. 
+        //2. Add trivial skip for trivial parenthesis.
+        //3. make binop parse binops.
+        //4. if binop parse fails, try unop.
+        //5. if unop fails, try call, then try literal.
+        while head != ts.start {
+            let cur_tkn = ts.get(head);
+            if cur_tkn.tkn_type == TokenType::RightParen {
+                paren_order+=1;
+            }
+            if cur_tkn.tkn_type == TokenType::LeftParen {
+                if paren_order == 0 {
+                    return Err(CompileError::from_str(head,"Unmatched paren"));
+                }
+                paren_order-=1;
+            }
+
+            let maybe_bop = BinOp::from_tkntype(&cur_tkn.tkn_type);
+
+            if let Some(bop) = maybe_bop {
+            }
+            head-=1;
+        }
+
+        return Err(CompileError::from_str(0,"idk"));
+    }
 }
 
 #[derive(Debug)]
