@@ -6,5 +6,9 @@ use parse::*;
 
 
 fn main() {
-    println!("Hello, world!");
+    let source = String::new();
+    let tkns = tokenize(&source);
+    println!("TKNS: {:?}",tkns);
+    let ast = parse(tkns);
+    println!("AST: {:?}",ast);
 }
