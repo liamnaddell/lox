@@ -1,6 +1,7 @@
 use crate::token::*;
 use std::result::Result as RResult;
 use std::collections::HashMap;
+use std::cmp;
 
 //This is a type alias.
 //Result is the Maybe monad, but instead of Some or None,
@@ -106,7 +107,7 @@ pub enum BinOp {
 }
 */
 
-#[derive(Hash, Eq, PartialEq, Debug,Copy,Clone)]
+#[derive(Eq,PartialEq,Debug,Copy,Clone,PartialOrd,Ord)]
 pub enum BinOp {
     Minus, Plus, Star,
     Bang, BangEqual,
@@ -122,6 +123,13 @@ impl BinOp {
             TokenType::And => Some(BinOp::And),
             _ => None
         }
+    }
+
+    fn max() -> BinOp {
+        return cmp::max(BinOp::Minus,BinOp::Or);
+    }
+    fn min() -> BinOp {
+        return cmp::min(BinOp::Minus,BinOp::Or);
     }
 }
 
@@ -268,12 +276,8 @@ fn mk_err<T>(locus:usize,msg: &str) -> Result<T> {
     return Err(CompileError::from_str(locus,msg));
 }
 
-fn find_highest_prec(oper_loc: &HashMap<BinOp,usize>) -> Option<(BinOp,usize)> {
-    //TODO: FIX!
-    for (k,v) in oper_loc.iter() {
-        return Some((*k,*v));
-    }
-    return None;
+fn bop_higher_prec(bop:BinOp,maybe_high_prec_bop:BinOp) -> bool {
+    return maybe_high_prec_bop > bop;
 }
 
 impl Expr {
@@ -331,8 +335,9 @@ impl Expr {
         let mut head = ts.end-1;
         let mut paren_order = 0;
         //mapping from operator -> location wrt ts.
-        //TODO: REMOVE hash map
-        let mut oper_loc: HashMap<BinOp,usize> = HashMap::new();
+        let mut bop = BinOp::min();
+        //no bop.
+        let mut bop_loc = 0;
 
         //Find all the operators.
         while head >= ts.start {
@@ -359,8 +364,11 @@ impl Expr {
                 }
             }
 
-            let bop: BinOp = maybe_bop.unwrap();
-            oper_loc.insert(bop,head);
+            let maybe_high_prec_bop: BinOp = maybe_bop.unwrap();
+            if bop_higher_prec(bop,maybe_high_prec_bop) {
+                bop = maybe_high_prec_bop;
+                bop_loc = head;
+            }
             if head != 0 {
                 head-=1;
             } else {
@@ -368,14 +376,11 @@ impl Expr {
             }
         }
 
-        //TODO: Find highest precedence operator location
-        let maybe_bop_loc_op = find_highest_prec(&oper_loc);
-
-        if maybe_bop_loc_op.is_none() {
+        if bop_loc == 0 {
             return Err(CompileError::from_str(ts.loc(0),"Expected something, got whatever"));
         }
 
-        let (bop, bop_loc) = maybe_bop_loc_op.unwrap();
+        //let (bop, bop_loc) = maybe_bop_loc_op.unwrap();
 
         //there was a bin op.
         let left: Box<Expr> = Expr::parse(ts.sub(0,bop_loc))?;
