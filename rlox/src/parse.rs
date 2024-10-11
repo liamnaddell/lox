@@ -106,7 +106,7 @@ pub enum BinOp {
 }
 */
 
-#[derive(Hash, Eq, PartialEq, Debug)]
+#[derive(Hash, Eq, PartialEq, Debug,Copy,Clone)]
 pub enum BinOp {
     Minus, Plus, Star,
     Bang, BangEqual,
@@ -268,6 +268,14 @@ fn mk_err<T>(locus:usize,msg: &str) -> Result<T> {
     return Err(CompileError::from_str(locus,msg));
 }
 
+fn find_highest_prec(oper_loc: &HashMap<BinOp,usize>) -> Option<(BinOp,usize)> {
+    //TODO: FIX!
+    for (k,v) in oper_loc.iter() {
+        return Some((*k,*v));
+    }
+    return None;
+}
+
 impl Expr {
     fn parse(mut ts: TknSlice) -> Result<Box<Expr>> {
         if ts.size() == 0 {
@@ -323,6 +331,7 @@ impl Expr {
         let mut head = ts.end-1;
         let mut paren_order = 0;
         //mapping from operator -> location wrt ts.
+        //TODO: REMOVE hash map
         let mut oper_loc: HashMap<BinOp,usize> = HashMap::new();
 
         //Find all the operators.
@@ -360,18 +369,18 @@ impl Expr {
         }
 
         //TODO: Find highest precedence operator location
-        unimplemented!();
-        let hop_loc: usize = 0;
-        let bop: BinOp = BinOp::And;
+        let maybe_bop_loc_op = find_highest_prec(&oper_loc);
 
-        //there was a bin op.
-        if hop_loc != 0 {
-            let left: Box<Expr> = Expr::parse(ts.sub(0,hop_loc))?;
-            let right: Box<Expr> = Expr::parse(ts.sub(hop_loc+1,0))?;
-            return Ok(Box::new(Expr::Binary(Binary {locus:hop_loc,op:bop,left,right})));
+        if maybe_bop_loc_op.is_none() {
+            return Err(CompileError::from_str(ts.loc(0),"Expected something, got whatever"));
         }
 
-        return Err(CompileError::from_str(0,"idk"));
+        let (bop, bop_loc) = maybe_bop_loc_op.unwrap();
+
+        //there was a bin op.
+        let left: Box<Expr> = Expr::parse(ts.sub(0,bop_loc))?;
+        let right: Box<Expr> = Expr::parse(ts.sub(bop_loc+1,0))?;
+        return Ok(Box::new(Expr::Binary(Binary {locus:bop_loc,op:bop,left,right})));
     }
 }
 
