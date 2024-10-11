@@ -29,7 +29,13 @@ pub struct Token {
     pub locus:usize,
 }
 
-fn tokenize(_source: &String) -> Vec<Token> {
-    //TODO: T>I>N_A
-    unimplemented!();
+pub fn tokenize(_source: &String) -> Vec<Token> {
+    use TokenType::*;
+    //TODO: please delete my spam tuna.
+
+    let tkn = |t: TokenType| {
+        Token {tkn_type:t, locus:0}
+    };
+    //return vec![tkn(LeftParen),tkn(StringLit("hi".to_string())),tkn(RightParen)]
+    return vec![tkn(StringLit("hi".to_string())),tkn(And),tkn(StringLit("hi".to_string()))]
 }

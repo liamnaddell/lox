@@ -8,6 +8,7 @@ use std::collections::HashMap;
 //<T> is a generic parameter.
 type Result<T> = RResult<T,CompileError>;
 
+#[derive(Debug)]
 struct CompileError {
     locus: usize,
     msg: String,
@@ -41,7 +42,7 @@ impl<'a> TknSlice<'a> {
     }
     fn get(&self, index: usize) -> &'a Token {
         if index >= self.size() {
-            panic!("Compiler error");
+            panic!("The compiler sucks");
         }
         return &self.tkns[self.start + index];
     }
@@ -51,7 +52,7 @@ impl<'a> TknSlice<'a> {
     }
 
     fn sub(&self,new_start:usize,mut new_end:usize) -> TknSlice<'a> {
-        assert!(self.start >= new_start);
+        assert!(self.start <= new_start);
         assert!(new_end <= self.end);
 
         if new_end == 0 {
@@ -70,11 +71,9 @@ impl CompileError {
     }
     pub fn emit(&self) {
         //TODO: Add pretty colors 可愛!!
-        unimplemented!();
+        println!("{}",self.msg);
     }
 }
-
-
 
 #[derive(Debug)]
 pub enum UnaryOp {
@@ -321,13 +320,13 @@ impl Expr {
         //  * As a rule, there is NO backtracking. we are NOT attempting to parse operators until a
         //  match occurs. We are attempting to parse, in a specific order. If one parse fails, the
         //  entire parse fails. We will NOT recurse until a valid interpretation is found.
-        let mut head = ts.end;
+        let mut head = ts.end-1;
         let mut paren_order = 0;
         //mapping from operator -> location wrt ts.
         let mut oper_loc: HashMap<BinOp,usize> = HashMap::new();
 
         //Find all the operators.
-        while head != ts.start {
+        while head >= ts.start {
             let cur_tkn = ts.get(head);
             if cur_tkn.tkn_type == TokenType::RightParen {
                 paren_order+=1;
@@ -342,21 +341,31 @@ impl Expr {
             let maybe_bop = BinOp::from_tkntype(&cur_tkn.tkn_type);
 
             if maybe_bop.is_none() {
-                head-=1;
-                continue;
+                //TODO: UGGO CODE
+                if head != 0 {
+                    head-=1;
+                    continue;
+                } else {
+                    break;
+                }
             }
 
             let bop: BinOp = maybe_bop.unwrap();
             oper_loc.insert(bop,head);
-            head-=1;
+            if head != 0 {
+                head-=1;
+            } else {
+                break;
+            }
         }
 
         //TODO: Find highest precedence operator location
+        unimplemented!();
         let hop_loc: usize = 0;
         let bop: BinOp = BinOp::And;
 
         //there was a bin op.
-        if (hop_loc != 0) {
+        if hop_loc != 0 {
             let left: Box<Expr> = Expr::parse(ts.sub(0,hop_loc))?;
             let right: Box<Expr> = Expr::parse(ts.sub(hop_loc+1,0))?;
             return Ok(Box::new(Expr::Binary(Binary {locus:hop_loc,op:bop,left,right})));
@@ -392,4 +401,17 @@ pub enum Decl {
 pub struct Program {
     pub locus: usize,
     pub decls: Vec<Box<Decl>>,
+}
+
+pub fn parse(tkns: Vec<Token>) -> Option<Box<Expr>> {
+    let tkn_slice = TknSlice { tkns: &tkns, start: 0, end: tkns.len() };
+
+    let maybe_expr = Expr::parse(tkn_slice);
+
+    if let Err(e) = maybe_expr {
+        e.emit();
+        return None;
+    }
+
+    return Some(maybe_expr.unwrap());
 }
