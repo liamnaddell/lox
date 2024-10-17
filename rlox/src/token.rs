@@ -129,7 +129,7 @@ impl Tokenizer {
     // move to next unit
     fn advance(&mut self) -> char {
         self.locus += 1;
-        return char::from_digit(self.src[self.locus - 1] as u32, 10).unwrap();
+        return char::from(self.src[self.locus - 1]);
         // SWITCH FOR src<usize>
         // return char::from_digit(self.src[self.locus - 1] as u32, 10).unwrap();
     }
