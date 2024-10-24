@@ -1,6 +1,6 @@
 use std::{collections::HashMap, usize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug,Clone,PartialEq)]
 pub enum TokenType {
   //scream cased to avoid keyword conflicts with cpp
   LeftParen, 
