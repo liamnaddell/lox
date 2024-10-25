@@ -1,19 +1,7 @@
 use crate::token::*;
-use std::result::Result as RResult;
+use crate::error::*;
 use std::collections::HashMap;
 use std::cmp;
-
-//This is a type alias.
-//Result is the Maybe monad, but instead of Some or None,
-//we have Some or Err(msg)
-//<T> is a generic parameter.
-type Result<T> = RResult<T,CompileError>;
-
-#[derive(Debug)]
-struct CompileError {
-    locus: usize,
-    msg: String,
-}
 
 //TINA: 'a is a lifetime. 
 //This thing means "TknSlice CANNOT LIVE past it's vector reference"
@@ -41,6 +29,9 @@ impl<'a> TknSlice<'a> {
             return Err(CompileError::from_str(self.start,err));
         }
     }
+    fn end(&self) -> usize {
+        return self.size()-1;
+    }
     fn get(&self, index: usize) -> &'a Token {
         if index >= self.size() {
             panic!("The compiler sucks");
@@ -53,26 +44,16 @@ impl<'a> TknSlice<'a> {
     }
 
     fn sub(&self,new_start:usize,mut new_end:usize) -> TknSlice<'a> {
-        assert!(self.start <= new_start);
-        assert!(new_end <= self.end);
-
         if new_end == 0 {
             new_end = self.end;
+        } else {
+            new_end = self.start + new_end;
         }
-        return TknSlice { tkns: self.tkns,start:new_start,end:new_end };
-    }
-}
 
-impl CompileError {
-    pub fn new(locus: usize, msg: String) -> CompileError {
-        return CompileError {locus,msg};
-    }
-    pub fn from_str(locus: usize, msg: &str) -> CompileError {
-        return CompileError {locus,msg:msg.to_string()};
-    }
-    pub fn emit(&self) {
-        //TODO: Add pretty colors 可愛!!
-        println!("{}",self.msg);
+        assert!(new_start <= self.end);
+        assert!(new_end >= new_start);
+
+        return TknSlice { tkns: self.tkns,start:self.start+new_start,end:new_end };
     }
 }
 
@@ -110,16 +91,27 @@ pub enum BinOp {
 #[derive(Eq,PartialEq,Debug,Copy,Clone,PartialOrd,Ord)]
 pub enum BinOp {
     Minus, Plus, Star,
-    Bang, BangEqual,
-    Equal, EqualEqual,
+    BangEqual,
+    EqualEqual,
     Greater, GreaterEqual,
     Less, LessEqual,
-    And, Or,
+    And, Or, Slash
 }
 
 impl BinOp {
     fn from_tkntype(t: &TokenType) -> Option<BinOp> {
         match t {
+            TokenType::Minus => Some(BinOp::Minus),
+            TokenType::Plus => Some(BinOp::Plus),
+            TokenType::Slash => Some(BinOp::Slash),
+            TokenType::Star => Some(BinOp::Star),
+            TokenType::BangEqual => Some(BinOp::BangEqual),
+            TokenType::EqualEqual => Some(BinOp::EqualEqual),
+            TokenType::Greater => Some(BinOp::Greater),
+            TokenType::GreaterEqual => Some(BinOp::GreaterEqual),
+            TokenType::Less => Some(BinOp::Less),
+            TokenType::LessEqual => Some(BinOp::LessEqual),
+            TokenType::Or => Some(BinOp::Or),
             TokenType::And => Some(BinOp::And),
             _ => None
         }
@@ -287,7 +279,7 @@ impl Expr {
         }
         //TODO: UGGO CODE
         //Skip outer parenthesis
-        if ts.size() > 2 && ts.get(0).tkn_type == TokenType::LeftParen &&
+        while ts.size() > 2 && ts.get(0).tkn_type == TokenType::LeftParen &&
             ts.get(ts.size()-1).tkn_type == TokenType::RightParen {
                 ts = ts.sub(1,ts.size()-1);
         }
@@ -332,7 +324,7 @@ impl Expr {
         //  * As a rule, there is NO backtracking. we are NOT attempting to parse operators until a
         //  match occurs. We are attempting to parse, in a specific order. If one parse fails, the
         //  entire parse fails. We will NOT recurse until a valid interpretation is found.
-        let mut head = ts.end-1;
+        let mut head = ts.end();
         let mut paren_order = 0;
         //mapping from operator -> location wrt ts.
         let mut bop = BinOp::min();

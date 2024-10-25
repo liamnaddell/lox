@@ -1,4 +1,5 @@
 use std::{collections::HashMap, usize};
+use crate::error::*;
 
 #[derive(Debug,Clone,PartialEq)]
 pub enum TokenType {
@@ -22,18 +23,6 @@ pub enum TokenType {
   Print, Return, Super, This, True, Var, While,
 
     Eof,
-}
-
-#[derive(Debug)]
-struct TokenError {
-    locus: usize,
-    msg: String,
-}
-
-impl TokenError {
-    pub fn new(locus: usize, msg: String) -> TokenError {
-        return TokenError { locus, msg };
-    }
 }
 
 #[derive(Debug)]
@@ -100,6 +89,7 @@ impl Tokenizer {
 
     fn tokenize(&mut self) {
         let char: char = self.advance();
+        let mut extra_inc = false;
         match char {
             ' ' | '\n' | '\t' => {}
             '(' => self.add_token(TokenType::LeftParen),
@@ -115,6 +105,7 @@ impl Tokenizer {
             '!' => {
                 let potential_match: bool = self.match_partner('=');
                 self.add_token(if potential_match {
+                    extra_inc = true;
                     TokenType::BangEqual
                 } else {
                     TokenType::Bang
@@ -123,6 +114,7 @@ impl Tokenizer {
             '=' => {
                 let potential_match: bool = self.match_partner('=');
                 self.add_token(if potential_match {
+                    extra_inc = true;
                     TokenType::EqualEqual
                 } else {
                     TokenType::Equal
@@ -131,6 +123,7 @@ impl Tokenizer {
             '<' => {
                 let potential_match: bool = self.match_partner('=');
                 self.add_token(if potential_match {
+                    extra_inc = true;
                     TokenType::LessEqual
                 } else {
                     TokenType::Less
@@ -139,6 +132,7 @@ impl Tokenizer {
             '>' => {
                 let potential_match: bool = self.match_partner('=');
                 self.add_token(if potential_match {
+                    extra_inc = true;
                     TokenType::GreaterEqual
                 } else {
                     TokenType::Greater
@@ -152,6 +146,10 @@ impl Tokenizer {
                     self.add_token_identifier().unwrap();
                 }
             }
+        }
+        if extra_inc {
+            self.advance();
+            extra_inc=false;
         }
     }
 
@@ -194,7 +192,7 @@ impl Tokenizer {
     }
 
     // for handling strings since we need to find end quote
-    fn add_token_string(&mut self) -> Result<(), TokenError> {
+    fn add_token_string(&mut self) -> Result<()> {
         let i: usize = self.locus;
 
         while !self.at_end() && self.peek() != '"' {
@@ -202,9 +200,9 @@ impl Tokenizer {
         }
 
         if self.at_end() {
-            return Err(TokenError::new(
+            return Err(CompileError::from_str(
                 self.locus,
-                "Forgot to terminate your string ffs".to_string(),
+                "Forgot to terminate your string ffs",
             ));
         }
 
@@ -217,15 +215,15 @@ impl Tokenizer {
         match String::from_utf8(text) {
             Ok(string) => Ok(self.add_token(
               TokenType::StringLit(string))),
-            Err(e) => Err(TokenError::new(
+            Err(e) => Err(CompileError::from_str(
                 self.locus,
-                "what are u trying to sneak in your string?".to_string(),
+                "what are u trying to sneak in your string?",
             )),
         }
     }
 
     // for handling numbers since we digitS
-    fn add_token_num(&mut self) -> Result<(), TokenError> {
+    fn add_token_num(&mut self) -> Result<()> {
         let i: usize = self.locus;
 
         while is_numeric(self.peek()) {
@@ -246,15 +244,15 @@ impl Tokenizer {
             Ok(string) => Ok(self.add_token(
                 TokenType::Number(string.parse::<f64>().unwrap())
             )),
-            Err(e) => Err(TokenError::new(
+            Err(e) => Err(CompileError::from_str(
                 self.locus,
-                "what are u trying to sneak in your number?".to_string(),
+                "what are u trying to sneak in your number?",
             )),
         }
     }
 
     // for handling identifiers
-    fn add_token_identifier(&mut self) -> Result<(), TokenError> {
+    fn add_token_identifier(&mut self) -> Result<()> {
         let i: usize = self.locus - 1;
 
         while is_alphanumeric(self.peek_next()) {
@@ -262,7 +260,7 @@ impl Tokenizer {
         }
 
         if self.at_end() {
-            return Err(TokenError::new(self.locus, "Forgot something?".to_string()));
+            return Err(CompileError::from_str(self.locus, "Forgot something?"));
         }
 
         self.advance();
@@ -279,9 +277,9 @@ impl Tokenizer {
                 )),
               }
             }
-            Err(e) => Err(TokenError::new(
+            Err(e) => Err(CompileError::from_str(
                 self.locus,
-                "what are u trying to sneak in your identifier?".to_string(),
+                "what are u trying to sneak in your identifier?",
             )),
         }
     }
