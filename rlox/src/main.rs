@@ -1,5 +1,6 @@
 mod token;
 mod parse;
+mod error;
 
 use token::*;
 use parse::*;
