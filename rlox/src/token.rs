@@ -1,5 +1,6 @@
 use std::{collections::HashMap, usize};
 use crate::error::*;
+use std::str::FromStr;
 
 #[derive(Debug,Clone,PartialEq)]
 pub enum TokenType {
@@ -81,13 +82,17 @@ impl Tokenizer {
 
 impl Tokenizer {
     fn initiate_tokenization(&mut self, _source: String) {
+        //TODO: Return a sentinel to indicate tokenization fails!!!
         self.src = _source.into_bytes();
         while !self.at_end() {
-          self.tokenize();
+          let res = self.tokenize();
+          if let Err(e) = res {
+              e.emit();
+          }
         }
     }
 
-    fn tokenize(&mut self) {
+    fn tokenize(&mut self) -> Result<()> {
         let char: char = self.advance();
         let mut extra_inc = false;
         match char {
@@ -136,21 +141,26 @@ impl Tokenizer {
                     TokenType::GreaterEqual
                 } else {
                     TokenType::Greater
-                })
+                });
             }
-            '"' => self.add_token_string().unwrap(),
+            '"' => { 
+                self.add_token_string()?;
+            }
             _ => {
+                self.locus -=1;
                 if is_numeric(char) {
-                    self.add_token_num().unwrap();
+                    self.add_token_num()?;
                 } else if is_alpha(char) {
-                    self.add_token_identifier().unwrap();
+                    self.add_token_identifier()?;
                 }
             }
         }
+
         if extra_inc {
             self.advance();
             extra_inc=false;
         }
+        Ok(())
     }
 
     // helpers:
@@ -240,20 +250,18 @@ impl Tokenizer {
 
         let nums = self.src[i..self.locus].to_vec();
 
-        match String::from_utf8(nums) {
-            Ok(string) => Ok(self.add_token(
-                TokenType::Number(string.parse::<f64>().unwrap())
-            )),
-            Err(e) => Err(CompileError::from_str(
-                self.locus,
-                "what are u trying to sneak in your number?",
-            )),
-        }
+        let stri = String::from_utf8(nums).map_err(|_| new_err(self.locus, "What a NUMBER!!"))?;
+
+
+        let num = f64::from_str(&stri).map_err(|_| new_err(self.locus,"NICE NUMBER!!"))?;
+        self.add_token(TokenType::Number(num));
+
+        Ok(())
     }
 
     // for handling identifiers
     fn add_token_identifier(&mut self) -> Result<()> {
-        let i: usize = self.locus - 1;
+        let i: usize = self.locus;
 
         while is_alphanumeric(self.peek_next()) {
             self.advance();

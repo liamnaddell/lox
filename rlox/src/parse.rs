@@ -26,7 +26,7 @@ impl<'a> TknSlice<'a> {
             self.start += 1;
             return Ok(&self.tkns[self.start - 1]);
         } else {
-            return Err(CompileError::from_str(self.start,err));
+            return Err(new_err(self.start,err));
         }
     }
     fn end(&self) -> usize {
@@ -204,7 +204,7 @@ impl Literal {
                 LitKind::NumberLit(*f)
             }
             _ => {
-                Err(CompileError::from_str(0,"expected an identifier, string literal, or number"))?
+                Err(new_err(0,"expected an identifier, string literal, or number"))?
             }
         };
         return Ok(Box::new(Literal {locus:maybe_lit.locus, kind: l}));
@@ -231,7 +231,7 @@ impl Unary {
                 u
             } else {
                 //this returns from parse
-                return mk_err(ts.loc(0),"Not a unary operator");
+                return Err(new_err(ts.loc(0),"Not a unary operator"));
             }
         };
 
@@ -264,10 +264,6 @@ pub enum Expr {
     Binary(Binary),
 }
 
-fn mk_err<T>(locus:usize,msg: &str) -> Result<T> {
-    return Err(CompileError::from_str(locus,msg));
-}
-
 fn bop_higher_prec(bop:BinOp,maybe_high_prec_bop:BinOp) -> bool {
     return maybe_high_prec_bop > bop;
 }
@@ -275,7 +271,7 @@ fn bop_higher_prec(bop:BinOp,maybe_high_prec_bop:BinOp) -> bool {
 impl Expr {
     fn parse(mut ts: TknSlice) -> Result<Box<Expr>> {
         if ts.size() == 0 {
-            return mk_err(ts.loc(0),"Emptiness");
+            return Err(new_err(ts.loc(0),"Emptiness"));
         }
         //TODO: UGGO CODE
         //Skip outer parenthesis
@@ -303,76 +299,57 @@ impl Expr {
             return Ok(una_expr);
         }
 
-
-        //whatever IS parsed must be 
-        //a) A trivial grouping (<expr>)
-        //b) A parser suggestive grouping (<expr>) AND (<expr>).
-        //
-        //In any case, we can only parse things that are in a 0-order grouping, or in a trivial
-        //grouping.
-        // * We must still handle operator precedence. 
-        //Algorithm:
-        //  0. Check for a trivial grouping, and perform trivial recursion.
-        //  1. Iterate through the tokens, ignoring tokens inside a grouping.
-        //  2. Build an array of <oper> -> <loc>, sorted by priority. 
-        //
-        //NOTE:
-        //  * We parse WEAK operators first. WEAK operators are higher up on the parse tree, and
-        //  thus should be parsed FIRST, so == is parsed before -(<expr>).
-        //  All unary operators are STRONG!!
-        //NOTE:
-        //  * As a rule, there is NO backtracking. we are NOT attempting to parse operators until a
-        //  match occurs. We are attempting to parse, in a specific order. If one parse fails, the
-        //  entire parse fails. We will NOT recurse until a valid interpretation is found.
-        let mut head = ts.end();
+        /*
+         ******************************************
+         * Attempting to parse binary operators now
+         ******************************************
+         */
+        let mut head = ts.end() as isize;
         let mut paren_order = 0;
         //mapping from operator -> location wrt ts.
         let mut bop = BinOp::min();
         //no bop.
         let mut bop_loc = 0;
 
-        //Find all the operators.
-        while head >= ts.start {
-            let cur_tkn = ts.get(head);
+        while head >= 0 {
+            let cur_tkn = ts.get(head as usize);
+
+            // paren_order = 0 => "we are not in parenthesis"
+            // paren_order == 0 => "we are in parenthesis"
             if cur_tkn.tkn_type == TokenType::RightParen {
                 paren_order+=1;
             }
             if cur_tkn.tkn_type == TokenType::LeftParen {
                 if paren_order == 0 {
-                    return Err(CompileError::from_str(head,"Unmatched paren"));
+                    return Err(CompileError::from_str(head as usize,"Unmatched paren"));
                 }
                 paren_order-=1;
             }
 
-            let maybe_bop = BinOp::from_tkntype(&cur_tkn.tkn_type);
+            //Skip trying to find binops from inside parens.
+            if paren_order != 0 {
+                head-=1;
+                continue;
+            }
 
+            let maybe_bop = BinOp::from_tkntype(&cur_tkn.tkn_type);
             if maybe_bop.is_none() {
-                //TODO: UGGO CODE
-                if head != 0 {
-                    head-=1;
-                    continue;
-                } else {
-                    break;
-                }
+                head-=1;
+                continue;
             }
 
             let maybe_high_prec_bop: BinOp = maybe_bop.unwrap();
-            if bop_higher_prec(bop,maybe_high_prec_bop) {
+            //higher precedence, OR we haven't parsed a bop yet.
+            if bop_higher_prec(bop,maybe_high_prec_bop) || bop_loc == 0 {
                 bop = maybe_high_prec_bop;
-                bop_loc = head;
+                bop_loc = head as usize;
             }
-            if head != 0 {
-                head-=1;
-            } else {
-                break;
-            }
+            head-=1;
         }
 
         if bop_loc == 0 {
-            return Err(CompileError::from_str(ts.loc(0),"Expected something, got whatever"));
+            return Err(CompileError::from_str(ts.loc(0),"Was looking for binary operator, but did not find any"));
         }
-
-        //let (bop, bop_loc) = maybe_bop_loc_op.unwrap();
 
         //there was a bin op.
         let left: Box<Expr> = Expr::parse(ts.sub(0,bop_loc))?;
