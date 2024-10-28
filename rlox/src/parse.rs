@@ -58,6 +58,14 @@ impl<'a> TknSlice<'a> {
 }
 
 #[derive(Debug)]
+pub enum Val {
+    StringLit(String),
+    NumberLit(f64),
+    Bool(bool),
+    Nil,
+}
+
+#[derive(Debug)]
 pub enum UnaryOp {
     Sub,
     Neg,
@@ -123,6 +131,27 @@ impl BinOp {
     fn min() -> BinOp {
         return cmp::min(BinOp::Minus,BinOp::Or);
     }
+
+    fn apply(op: &BinOp, left: Val, right: Val, locus: usize ) -> Result<Val> {
+        match (op, left, right) {
+            (BinOp::Minus, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::NumberLit(l - r)),
+            (BinOp::Plus, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::NumberLit(l + r)),
+            (BinOp::Plus, Val::StringLit(l), Val::StringLit(r)) => Ok(Val::StringLit(format!("{l}{r}"))),
+            (BinOp::Slash, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::NumberLit(l / r)),
+            (BinOp::Star, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::NumberLit(l * r)),
+            (BinOp::BangEqual, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::Bool(l != r)),
+            (BinOp::BangEqual, Val::StringLit(l), Val::StringLit(r)) => Ok(Val::Bool(l != r)), 
+            (BinOp::EqualEqual, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::Bool(l == r)),
+            (BinOp::EqualEqual, Val::StringLit(l), Val::StringLit(r)) => Ok(Val::Bool(l == r)),
+            (BinOp::Greater, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::Bool(l > r)), 
+            (BinOp::GreaterEqual, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::Bool(l >= r)), 
+            (BinOp::Less, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::Bool(l < r)), 
+            (BinOp::LessEqual, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::Bool(l <= r)), 
+            (BinOp::Or, Val::Bool(l), Val::Bool(r)) => Ok(Val::Bool(l || r)),
+            (BinOp::And, Val::Bool(l), Val::Bool(r)) => Ok(Val::Bool(l && r)),
+            (_, _, _) => Err(new_err(locus,"could not apply binary operation"))?
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -172,6 +201,9 @@ pub enum LitKind {
     StringLit(String),
     Identifier(String),
     NumberLit(f64),
+    True,
+    False,
+    Nil,
 }
 
 #[derive(Debug)]
@@ -203,11 +235,44 @@ impl Literal {
             TokenType::Number(f) => {
                 LitKind::NumberLit(*f)
             }
+            TokenType::False => {
+                LitKind::False
+            }
+            TokenType::True => {
+                LitKind::True
+            }
+            TokenType::Nil => {
+                LitKind::Nil
+            }
             _ => {
                 Err(new_err(0,"expected an identifier, string literal, or number"))?
             }
         };
         return Ok(Box::new(Literal {locus:maybe_lit.locus, kind: l}));
+    }
+
+    fn eval_lit(&mut self) -> Result<Val> {
+        let x = &self.kind;
+        match x {
+            LitKind::StringLit(y) => { 
+                Ok(Val::StringLit(y.clone()))
+            },
+            LitKind::Identifier(y) => { 
+                todo!();
+            },
+            LitKind::NumberLit(y) => {
+                Ok(Val::NumberLit(*y))
+            },
+            LitKind::True => { 
+                Ok(Val::Bool(true))
+            },
+            LitKind::False => {
+                Ok(Val::Bool(false))
+            },
+            LitKind::Nil => { 
+                Ok(Val::Nil)
+            },
+        } 
     }
 }
 
@@ -239,6 +304,28 @@ impl Unary {
 
         return Ok(Box::new(Unary { op: una_op, sub: sub_expr, locus: loc}));
     }
+    fn eval_unary(self) -> Result<Val> {
+        let op = &self.op;
+        let sub = Expr::eval(self.sub)?;
+        match (op, sub) {
+            (UnaryOp::Sub, Val::NumberLit(y)) => { 
+                Ok(Val::NumberLit(-(y.clone())))
+            },
+            (UnaryOp::Neg, Val::Bool(y)) => { 
+                Ok(Val::Bool(!y))
+            },
+            (UnaryOp::Neg, Val::Nil) => { 
+                // NOT SURE IF THIS IS WHAT WE WANT HERE
+                Ok(Val::Bool(true))
+            },
+            (UnaryOp::Sub, Val::Bool(_)) => { 
+                Err(new_err(self.locus,"why are u applying a neg to a bool?"))?
+            },
+            (_, _) => {
+                Err(new_err(self.locus,"why are u applying a unary operator to a string/identifier/nil?"))?
+            }
+        } 
+    }
 }
 
 #[derive(Debug)]
@@ -254,6 +341,15 @@ pub struct Binary {
     pub op: BinOp,
     pub left: Box<Expr>,
     pub right: Box<Expr>,
+}
+
+impl Binary {
+    fn eval_binary(self) -> Result<Val> {
+        let op = &self.op;
+        let left = Expr::eval(self.left)?;
+        let right = Expr::eval(self.right)?;
+        return BinOp::apply(op, left, right, self.locus);
+    }
 }
 
 #[derive(Debug)]
@@ -356,6 +452,16 @@ impl Expr {
         let right: Box<Expr> = Expr::parse(ts.sub(bop_loc+1,0))?;
         return Ok(Box::new(Expr::Binary(Binary {locus:bop_loc,op:bop,left,right})));
     }
+
+    fn eval(exp: Box<Expr>) -> Result<Val> {
+        match *exp {
+            Expr::Literal(mut l) => Literal::eval_lit(&mut l),
+            Expr::Unary(mut u) => Unary::eval_unary(u),
+            Expr::Binary(mut b) => Binary::eval_binary(b),
+            Expr::Call(_) => todo!(),
+        }
+    }
+
 }
 
 #[derive(Debug)]
@@ -397,4 +503,14 @@ pub fn parse(tkns: Vec<Token>) -> Option<Box<Expr>> {
     }
 
     return Some(maybe_expr.unwrap());
+}
+
+pub fn eval (exp: Box<Expr>) -> Option<Val> {
+    let maybe_expr = Expr::eval(exp);
+
+    if let Err(e) = maybe_expr {
+        e.emit();
+        return None;
+    }
+    return Some(maybe_expr.unwrap()); 
 }
