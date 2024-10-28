@@ -18,6 +18,7 @@ fn main() {
     let mut file = File::open(args[1].to_string()).unwrap();
     let mut source = String::new();
     file.read_to_string(&mut source).unwrap();
+    error::initialize_errors(&source);
     let tkns = tokenize(source);
     println!("TKNS: {:?}",tkns);
     
