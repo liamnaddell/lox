@@ -85,6 +85,15 @@ fn compiler_main() -> usize {
     let ast = parse(tkns);
     println!("AST: {:?}",ast);
 
+    if !ast.is_some() {
+        println!("Parsing failed");
+        return 1;
+   }
+    let ast = ast.unwrap();
+
+    let evaled = eval(ast);
+    println!("EVAL: {:?}",evaled);
+
     return 0;
 
 }
