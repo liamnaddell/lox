@@ -158,7 +158,6 @@ impl Tokenizer {
 
         if extra_inc {
             self.advance();
-            extra_inc=false;
         }
         Ok(())
     }
@@ -225,7 +224,7 @@ impl Tokenizer {
         match String::from_utf8(text) {
             Ok(string) => Ok(self.add_token(
               TokenType::StringLit(string))),
-            Err(e) => Err(CompileError::from_str(
+            Err(_) => Err(CompileError::from_str(
                 self.locus,
                 "what are u trying to sneak in your string?",
             )),
@@ -285,7 +284,7 @@ impl Tokenizer {
                 )),
               }
             }
-            Err(e) => Err(CompileError::from_str(
+            Err(_) => Err(CompileError::from_str(
                 self.locus,
                 "what are u trying to sneak in your identifier?",
             )),

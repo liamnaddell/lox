@@ -1,6 +1,5 @@
 use crate::token::*;
 use crate::error::*;
-use std::collections::HashMap;
 use std::cmp;
 
 //TINA: 'a is a lifetime. 
