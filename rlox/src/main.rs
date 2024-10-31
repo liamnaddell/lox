@@ -75,8 +75,25 @@ fn compiler_main() -> usize {
         hunk.add_const(2.0);
         hunk.add_div();
         hunk.add_print();
-        hunk.add_return();
 
+
+        // !(!(nil)) is true
+        hunk.add_nil();
+        hunk.add_not();
+        hunk.add_not();
+        hunk.add_print();
+        // !true is false
+        // !false is true
+        hunk.add_true();
+        hunk.add_not();
+        hunk.add_false();
+        hunk.add_not();
+        //true
+        hunk.add_print();
+        //false
+        hunk.add_print();
+
+        hunk.add_return();
         println!("{}",hunk);
 
         let res = hunk.interpret();
