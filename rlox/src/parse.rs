@@ -1,6 +1,7 @@
 use crate::token::*;
 use crate::error::*;
 use std::cmp;
+use crate::bc;
 
 //TINA: 'a is a lifetime. 
 //This thing means "TknSlice CANNOT LIVE past it's vector reference"
@@ -212,6 +213,29 @@ pub struct Literal {
 }
 
 impl Literal {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+        use LitKind::*;
+        match self.kind {
+            StringLit(ref s) => {
+                todo!();
+            }
+            Identifier(ref i) => {
+                todo!();
+            }
+            NumberLit(num) => {
+                ch.add_const(num);
+            }
+            True => {
+                ch.add_true();
+            }
+            False => {
+                ch.add_false();
+            }
+            Nil => {
+                ch.add_nil();
+            }
+        }
+    }
     fn parse(mut ts: TknSlice) -> Result<Box<Literal>> {
         //Rust blocks which return a Result are basically
         //the same as do blocks in haskell.
@@ -284,6 +308,20 @@ pub struct Unary {
 }
 
 impl Unary {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+        use UnaryOp::*;
+        self.sub.emit_bc(ch);
+        match &self.op {
+            //subtract
+            Sub => {
+                ch.add_negate();
+            }
+            // !a
+            Neg => {
+                ch.add_not();
+            }
+        }
+    }
     fn parse(mut ts: TknSlice) -> Result<Box<Unary>> {
         let loc = ts.loc(0);
         //should only be called by expr which checks this.
@@ -349,6 +387,25 @@ impl Binary {
         let right = Expr::eval(self.right)?;
         return BinOp::apply(op, left, right, self.locus);
     }
+    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+        use BinOp::*;
+        self.left.emit_bc(ch);
+        self.right.emit_bc(ch);
+        match self.op {
+            Minus => {ch.add_sub()}
+            Plus => {ch.add_add()}
+            Star => {ch.add_mul()}
+            BangEqual => {ch.add_equal();ch.add_not()}
+            EqualEqual => {ch.add_equal()}
+            Greater => {ch.add_greater()}
+            GreaterEqual => {ch.add_less();ch.add_not()}
+            Less => {ch.add_less()}
+            LessEqual => {ch.add_greater();ch.add_not()}
+            And => {ch.add_and()}
+            Or => {ch.add_or()}
+            Slash => {ch.add_div()}
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -364,6 +421,20 @@ fn bop_higher_prec(bop:BinOp,maybe_high_prec_bop:BinOp) -> bool {
 }
 
 impl Expr {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+        match &self {
+            Expr::Literal(ref l) => {
+                l.emit_bc(ch);
+            }
+            Expr::Unary(ref u) => {
+                u.emit_bc(ch);
+            }
+            Expr::Binary(ref b) => {
+                b.emit_bc(ch);
+            }
+            _ => {todo!()}
+        }
+    }
     fn parse(mut ts: TknSlice) -> Result<Box<Expr>> {
         if ts.size() == 0 {
             return Err(new_err(ts.loc(0),"Emptiness"));

@@ -61,45 +61,6 @@ fn compiler_main() -> usize {
 
     let arg = arg.unwrap();
 
-    if arg.bc {
-        let mut hunk = Chunk::new();
-
-        //((1+2-1)*2)/2=2
-        hunk.add_const(1.0);
-        hunk.add_const(2.0);
-        hunk.add_add();
-        hunk.add_const(1.0);
-        hunk.add_sub();
-        hunk.add_const(2.0);
-        hunk.add_mul();
-        hunk.add_const(2.0);
-        hunk.add_div();
-        hunk.add_print();
-
-
-        // !(!(nil)) is true
-        hunk.add_nil();
-        hunk.add_not();
-        hunk.add_not();
-        hunk.add_print();
-        // !true is false
-        // !false is true
-        hunk.add_true();
-        hunk.add_not();
-        hunk.add_false();
-        hunk.add_not();
-        //true
-        hunk.add_print();
-        //false
-        hunk.add_print();
-
-        hunk.add_return();
-        println!("{}",hunk);
-
-        let res = hunk.interpret();
-        println!("{:?}",res);
-        return (res == InterpretResult::OK) as usize;
-    }
 
     let mut file = File::open(arg.file).unwrap();
     let mut source = String::new();
@@ -109,16 +70,30 @@ fn compiler_main() -> usize {
     println!("TKNS: {:?}",tkns);
     
     let ast = parse(tkns);
-    println!("AST: {:?}",ast);
 
     if !ast.is_some() {
         println!("Parsing failed");
         return 1;
    }
     let ast = ast.unwrap();
+    println!("AST: {:?}",ast);
 
-    let evaled = eval(ast);
-    println!("EVAL: {:?}",evaled);
+    if arg.bc {
+        let mut hunk = Chunk::new();
+
+        ast.emit_bc(&mut hunk);
+        hunk.add_print();
+        hunk.add_return();
+
+        println!("{}",hunk);
+
+        let res = hunk.interpret();
+        println!("{:?}",res);
+        return (res == InterpretResult::OK) as usize;
+    } else {
+        let evaled = eval(ast);
+        println!("EVAL: {:?}",evaled);
+    }
 
     return 0;
 

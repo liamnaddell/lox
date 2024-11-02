@@ -1,7 +1,7 @@
 use std::fmt;
 
 #[repr(u8)]
-#[derive(Clone,Copy,Ord,PartialOrd,PartialEq,Eq)]
+#[derive(Clone,Copy,Ord,PartialOrd,PartialEq,Eq,Debug)]
 #[allow(non_camel_case_types)]
 enum Opcode {
     OP_RETURN = 0,
@@ -16,7 +16,11 @@ enum Opcode {
     OP_TRUE,
     OP_FALSE,
     OP_NOT,
-    //TODO: Equality + comparison (  OP_EQUAL, OP_GREATER, OP_LESS,)
+    OP_EQUAL,
+    OP_GREATER,
+    OP_LESS,
+    OP_AND,
+    OP_OR,
 
     //MAKE SURE THIS IS THE LAST ONE!!!!!
     /* NEVER ADD CODE HERE */
@@ -134,11 +138,26 @@ impl Chunk {
     pub fn add_mul(&mut self) {
         self.code.push(Opcode::OP_MULTIPLY as u8);
     }
+    pub fn add_or(&mut self) {
+        self.code.push(Opcode::OP_OR as u8);
+    }
+    pub fn add_and(&mut self) {
+        self.code.push(Opcode::OP_AND as u8);
+    }
     pub fn add_div(&mut self) {
         self.code.push(Opcode::OP_DIVIDE as u8);
     }
     pub fn add_return(&mut self) {
         self.code.push(Opcode::OP_RETURN as u8);
+    }
+    pub fn add_equal(&mut self) {
+        self.code.push(Opcode::OP_EQUAL as u8);
+    }
+    pub fn add_greater(&mut self) {
+        self.code.push(Opcode::OP_GREATER as u8);
+    }
+    pub fn add_less(&mut self) {
+        self.code.push(Opcode::OP_LESS as u8);
     }
     fn get_fn(&self,opc:Opcode) -> FBinOp {
         use Opcode::*;
@@ -156,6 +175,9 @@ impl Chunk {
         use Opcode::*;
         let mut i = 0;
         loop {
+            if i >= self.code.len() {
+                panic!("missing return");
+            }
             let opc = self.code[i];
             let op = Opcode::from_u8(opc);
             match op {
@@ -193,6 +215,37 @@ impl Chunk {
                         }
                     }
                 }
+                OP_EQUAL => {
+                    if self.stack_len() < 2 {
+                        return CompileError;
+                    }
+                    let v1 = self.pop_stack();
+                    let v2 = self.pop_stack();
+
+                    self.push_stack(Value::Bool(v1 == v2));
+                }
+                OP_GREATER | OP_LESS => {
+                    if self.stack_len() < 2 {
+                        return CompileError;
+                    }
+                    let v1 = self.pop_stack();
+                    let v2 = self.pop_stack();
+
+                    match (v1,v2) {
+                        (Value::Num(f1),Value::Num(f2)) => {
+                            if op == OP_GREATER {
+                                self.push_stack(Value::Bool(f2 > f1));
+                            } else if op == OP_LESS {
+                                self.push_stack(Value::Bool(f2 < f1));
+                            } else {
+                                panic!("whut");
+                            }
+                        }
+                        _ => {
+                            return RuntimeError;
+                        }
+                    }
+                }
                 OP_NIL => {
                     self.push_stack(Value::Nil);
                 }
@@ -222,6 +275,25 @@ impl Chunk {
 
                     self.push_stack(Value::Bool(is_falsey(v1)));
                 }
+                OP_AND | OP_OR => {
+                    if self.stack_len() < 2 {
+                        return CompileError;
+                    }
+                    let v2 = self.pop_stack();
+                    let v1 = self.pop_stack();
+                    match (v2,v1) {
+                        (Value::Bool(a),Value::Bool(b)) => {
+                            if op == OP_AND {
+                                self.push_stack(Value::Bool(a && b));
+                            } else if op == OP_OR {
+                                self.push_stack(Value::Bool(a || b));
+                            } else {
+                                panic!("whut");
+                            }
+                        }
+                        _ => {return RuntimeError;}
+                    }
+                }
                 OP_PRINT => {
                     if self.stack_empty() {
                         return CompileError;
@@ -242,13 +314,13 @@ impl Chunk {
 impl fmt::Display for Chunk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f,"==BEGIN==\n")?;
-        //TODO: Fix this
         let mut i = 0;
         while i < self.code.len() {
             use Opcode::*;
             let opc = self.code[i];
             write!(f,"{:b}\t",opc)?;
-            match Opcode::from_u8(opc) {
+            let op = Opcode::from_u8(opc);
+            match op {
                 OP_RETURN => { 
                     write!(f,"OP_RETURN")?;
                 }
@@ -267,35 +339,10 @@ impl fmt::Display for Chunk {
                     let v = self.constants[const_index];
                     write!(f,"{}",v)?;
                 }
-                OP_NIL => {
-                    write!(f,"OP_NIL")?;
-                }
-                OP_TRUE => {
-                    write!(f,"OP_TRUE")?;
-                }
-                OP_FALSE => {
-                    write!(f,"OP_FALSE")?;
-                }
-                OP_ADD => {
-                    write!(f,"OP_ADD")?;
-                }
-                OP_SUBTRACT => {
-                    write!(f,"OP_SUBTRACT")?;
-                }
-                OP_MULTIPLY => {
-                    write!(f,"OP_MULTIPLY")?;
-                }
-                OP_DIVIDE => {
-                    write!(f,"OP_DIVIDE")?;
-                }
-                OP_PRINT => {
-                    write!(f,"OP_PRINT")?;
-                }
-                OP_NEGATE => {
-                    write!(f,"OP_NEGATE")?;
-                }
-                OP_NOT => {
-                    write!(f,"OP_NOT")?;
+                OP_NIL | OP_TRUE | OP_EQUAL | OP_FALSE | OP_ADD | OP_SUBTRACT 
+                | OP_MULTIPLY | OP_DIVIDE | OP_PRINT | OP_NEGATE | OP_NOT 
+                | OP_GREATER | OP_LESS | OP_AND | OP_OR => {
+                    write!(f,"{:?}",op)?;
                 }
                 OP_NONE => {
                     write!(f,"Invalid opcode!!!")?;
