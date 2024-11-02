@@ -73,5 +73,5 @@ pub fn new_err(locus:usize, msg: &str) -> CompileError {
 
 
 pub fn initialize_errors(s:&str) {
-    let mut source = SOURCE.set(s.to_string());
+    let _ = SOURCE.set(s.to_string());
 }

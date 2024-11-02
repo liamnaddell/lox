@@ -23,7 +23,7 @@ fn argparse(args: &Vec<String>) -> Option<Args> {
     };
 
     let mut i = 1;
-    while (i < args.len()) {
+    while i < args.len() {
         if args[i] == "-b" {
             arg.bc = true;
         } else {
@@ -31,7 +31,7 @@ fn argparse(args: &Vec<String>) -> Option<Args> {
         }
         i+=1;
     }
-    if (i == args.len()) {
+    if i == args.len() {
         println!("You need to specify a file to parse");
         return None;
     }
@@ -64,7 +64,16 @@ fn compiler_main() -> usize {
     if arg.bc {
         let mut hunk = Chunk::new();
 
-        hunk.add_const(42.0);
+        //((1+2-1)*2)/2=2
+        hunk.add_const(1.0);
+        hunk.add_const(2.0);
+        hunk.add_add();
+        hunk.add_const(1.0);
+        hunk.add_sub();
+        hunk.add_const(2.0);
+        hunk.add_mul();
+        hunk.add_const(2.0);
+        hunk.add_div();
         hunk.add_print();
         hunk.add_return();
 

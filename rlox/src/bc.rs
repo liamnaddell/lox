@@ -2,11 +2,15 @@ use std::fmt;
 
 #[repr(u8)]
 #[derive(Clone,Copy,Ord,PartialOrd,PartialEq,Eq)]
+#[allow(non_camel_case_types)]
 enum Opcode {
     OP_RETURN = 0,
     OP_CONSTANT,
     OP_PRINT,
-
+    OP_ADD,
+    OP_SUBTRACT,
+    OP_MULTIPLY,
+    OP_DIVIDE,
 
     //MAKE SURE THIS IS THE LAST ONE!!!!!
     /* NEVER ADD CODE HERE */
@@ -40,12 +44,16 @@ pub enum InterpretResult {
     RuntimeError,
 }
 
+type BinOp = fn(Value,Value) -> Value;
 impl Chunk {
     pub fn new() -> Chunk {
         return Chunk { code:vec!(),constants: vec!(), stack: vec!()};
     }
+    pub fn stack_len(&self) -> usize {
+        return self.stack.len();
+    }
     pub fn stack_empty(&self) -> bool {
-        return self.stack.len() == 0;
+        return self.stack_len() == 0;
     }
     pub fn push_stack(&mut self,v:Value) {
         return self.stack.push(v);
@@ -62,8 +70,30 @@ impl Chunk {
     pub fn add_print(&mut self) {
         self.code.push(Opcode::OP_PRINT as u8);
     }
+    pub fn add_add(&mut self) {
+        self.code.push(Opcode::OP_ADD as u8);
+    }
+    pub fn add_sub(&mut self) {
+        self.code.push(Opcode::OP_SUBTRACT as u8);
+    }
+    pub fn add_mul(&mut self) {
+        self.code.push(Opcode::OP_MULTIPLY as u8);
+    }
+    pub fn add_div(&mut self) {
+        self.code.push(Opcode::OP_DIVIDE as u8);
+    }
     pub fn add_return(&mut self) {
         self.code.push(Opcode::OP_RETURN as u8);
+    }
+    fn get_fn(&self,opc:Opcode) -> BinOp {
+        use Opcode::*;
+        return match opc {
+            OP_ADD => |x,y| {x + y},
+            OP_SUBTRACT => |x,y| {x - y},
+            OP_MULTIPLY => |x,y| {x * y},
+            OP_DIVIDE => |x,y| {x / y},
+            _ => { panic!("get fn failed compiler sucks")}
+        };
     }
     pub fn interpret(&mut self) -> InterpretResult {
         use InterpretResult::*;
@@ -71,7 +101,8 @@ impl Chunk {
         let mut i = 0;
         loop {
             let opc = self.code[i];
-            match Opcode::from_u8(opc) {
+            let op = Opcode::from_u8(opc);
+            match op {
                 OP_RETURN => { 
                     return OK;
                 }
@@ -89,6 +120,17 @@ impl Chunk {
                     let v = self.constants[const_index];
                     self.push_stack(v);
                 }
+                OP_ADD | OP_SUBTRACT | OP_MULTIPLY | OP_DIVIDE => {
+                    let op_fn = self.get_fn(op);
+                    if self.stack_len() < 1 {
+                        return CompileError;
+                    }
+                    let v1 = self.pop_stack();
+                    let v2 = self.pop_stack();
+
+                    self.push_stack(op_fn(v2,v1));
+
+                }
                 OP_PRINT => {
                     if self.stack_empty() {
                         return CompileError;
@@ -103,7 +145,6 @@ impl Chunk {
             }
             i+=1;
         }
-        return InterpretResult::OK;
     }
 }
 
@@ -128,12 +169,24 @@ impl fmt::Display for Chunk {
                     i+=1;
                     let const_index = self.code[i] as usize;
 
-                    if (const_index >= self.constants.len()) {
+                    if const_index >= self.constants.len() {
                         write!(f," WTFINDEX")?;
                     }
 
                     let v = self.constants[const_index];
                     write!(f,"{}",v)?;
+                }
+                OP_ADD => {
+                    write!(f,"OP_ADD")?;
+                }
+                OP_SUBTRACT => {
+                    write!(f,"OP_SUBTRACT")?;
+                }
+                OP_MULTIPLY => {
+                    write!(f,"OP_MULTIPLY")?;
+                }
+                OP_DIVIDE => {
+                    write!(f,"OP_DIVIDE")?;
                 }
                 OP_PRINT => {
                     write!(f,"OP_PRINT")?;
