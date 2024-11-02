@@ -107,6 +107,7 @@ impl Tokenizer {
             '+' => self.add_token(TokenType::Plus),
             ';' => self.add_token(TokenType::Semicolon),
             '*' => self.add_token(TokenType::Star),
+            '/' => self.add_token(TokenType::Slash),
             '!' => {
                 let potential_match: bool = self.match_partner('=');
                 self.add_token(if potential_match {
@@ -152,6 +153,8 @@ impl Tokenizer {
                     self.add_token_num()?;
                 } else if is_alpha(char) {
                     self.add_token_identifier()?;
+                } else {
+                    return Err(new_err(self.locus+1,"Unknown token in token stream"));
                 }
             }
         }
