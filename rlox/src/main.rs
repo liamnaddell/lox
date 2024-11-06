@@ -39,9 +39,6 @@ fn argparse(args: &Vec<String>) -> Option<Args> {
     arg.file=args[i].clone();
 
     return Some(arg);
-
-
-
 }
 
 fn main() -> ExitCode {
@@ -82,8 +79,6 @@ fn compiler_main() -> usize {
         let mut hunk = Chunk::new();
 
         ast.emit_bc(&mut hunk);
-        hunk.add_print();
-        hunk.add_return();
 
         println!("{}",hunk);
 
@@ -91,8 +86,7 @@ fn compiler_main() -> usize {
         println!("{:?}",res);
         return (res == InterpretResult::OK) as usize;
     } else {
-        let evaled = eval(ast);
-        println!("EVAL: {:?}",evaled);
+        eval(ast);
     }
 
     return 0;

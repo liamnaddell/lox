@@ -1,0 +1,6 @@
+print ( 1.0 + 2.0 == 3.0 );
+
+{
+  print true or false;
+  print (5 - (3 - 1)) + -1;
+}
