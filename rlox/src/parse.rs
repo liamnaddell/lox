@@ -12,6 +12,7 @@ struct TknSlice<'a> {
     end: usize,
 }
 
+//TODO: Implement proper pythonized array indexing
 impl<'a> TknSlice<'a> {
     fn loc(&self, index: usize) -> usize {
         assert!(index < self.size());
@@ -57,6 +58,9 @@ impl<'a> TknSlice<'a> {
     }
 }
 
+//TODO: This should be merged with bc::Value, thereby implementing Display properly. 
+//this Value should be moved to it's own file, value.rs. However, this cannot be done 
+//until bc properly implements string operations.
 #[derive(Debug)]
 pub enum Val {
     StringLit(String),
@@ -125,9 +129,6 @@ impl BinOp {
         }
     }
 
-    fn max() -> BinOp {
-        return cmp::max(BinOp::Minus,BinOp::Or);
-    }
     fn min() -> BinOp {
         return cmp::min(BinOp::Minus,BinOp::Or);
     }
@@ -166,6 +167,40 @@ pub struct FnDecl {
 pub struct Block {
     pub locus: usize,
     pub stmts: Vec<Box<Stmt>>,
+}
+
+impl Block {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+        for stmt in &self.stmts {
+            stmt.emit_bc(ch);
+        }
+    }
+    fn eval(&self) -> Result<()> {
+        for stmt in &self.stmts {
+            stmt.eval()?;
+        }
+        return Ok(());
+    }
+    //NOTE: removes semicolons
+    fn parse(ts: TknSlice) -> Result<Box<Block>> {
+        let mut b = Block { locus: ts.loc(0), stmts:vec!()};
+        let mut loc_old = 0;
+        let mut loc = 0;
+
+        while loc != ts.size() {
+            let t = ts.get(loc); 
+            if t.tkn_type == TokenType::Semicolon {
+                let ts2 = ts.sub(loc_old,loc);
+                let stmt = Stmt::parse(ts2)?;
+                b.stmts.push(stmt);
+                //skip semicolon
+                loc_old = loc+1;
+            }
+            loc += 1;
+        }
+
+        return Ok(Box::new(b));
+    }
 }
 
 #[derive(Debug)]
@@ -216,10 +251,10 @@ impl Literal {
     pub fn emit_bc(&self, ch: &mut bc::Chunk) {
         use LitKind::*;
         match self.kind {
-            StringLit(ref s) => {
+            StringLit(ref _s) => {
                 todo!();
             }
-            Identifier(ref i) => {
+            Identifier(ref _i) => {
                 todo!();
             }
             NumberLit(num) => {
@@ -274,13 +309,14 @@ impl Literal {
         return Ok(Box::new(Literal {locus:maybe_lit.locus, kind: l}));
     }
 
-    fn eval_lit(&mut self) -> Result<Val> {
+    //TODO: Ret val?
+    fn eval(&self) -> Result<Val> {
         let x = &self.kind;
         match x {
             LitKind::StringLit(y) => { 
                 Ok(Val::StringLit(y.clone()))
             },
-            LitKind::Identifier(y) => { 
+            LitKind::Identifier(_y) => { 
                 todo!();
             },
             LitKind::NumberLit(y) => {
@@ -341,9 +377,9 @@ impl Unary {
 
         return Ok(Box::new(Unary { op: una_op, sub: sub_expr, locus: loc}));
     }
-    fn eval_unary(self) -> Result<Val> {
+    fn eval(&self) -> Result<Val> {
         let op = &self.op;
-        let sub = Expr::eval(self.sub)?;
+        let sub = Expr::eval(&self.sub)?;
         match (op, sub) {
             (UnaryOp::Sub, Val::NumberLit(y)) => { 
                 Ok(Val::NumberLit(-(y.clone())))
@@ -381,10 +417,11 @@ pub struct Binary {
 }
 
 impl Binary {
-    fn eval_binary(self) -> Result<Val> {
+    //TODO: self????
+    fn eval(&self) -> Result<Val> {
         let op = &self.op;
-        let left = Expr::eval(self.left)?;
-        let right = Expr::eval(self.right)?;
+        let left = Expr::eval(&*self.left)?;
+        let right = Expr::eval(&*self.right)?;
         return BinOp::apply(op, left, right, self.locus);
     }
     pub fn emit_bc(&self, ch: &mut bc::Chunk) {
@@ -409,6 +446,7 @@ impl Binary {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Expr {
     Literal(Literal),
     Unary(Unary),
@@ -437,7 +475,8 @@ impl Expr {
     }
     fn parse(mut ts: TknSlice) -> Result<Box<Expr>> {
         if ts.size() == 0 {
-            return Err(new_err(ts.loc(0),"Emptiness"));
+            panic!("I think this should paic now");
+            //return Err(new_err(ts.loc(0),"Emptiness"));
         }
         //TODO: UGGO CODE
         //Skip outer parenthesis
@@ -523,11 +562,11 @@ impl Expr {
         return Ok(Box::new(Expr::Binary(Binary {locus:bop_loc,op:bop,left,right})));
     }
 
-    fn eval(exp: Box<Expr>) -> Result<Val> {
-        match *exp {
-            Expr::Literal(mut l) => Literal::eval_lit(&mut l),
-            Expr::Unary(mut u) => Unary::eval_unary(u),
-            Expr::Binary(mut b) => Binary::eval_binary(b),
+    fn eval(&self) -> Result<Val> {
+        match self {
+            Expr::Literal(ref l) => Literal::eval(l),
+            Expr::Unary(ref u) => Unary::eval(u),
+            Expr::Binary(ref b) => Binary::eval(b),
             Expr::Call(_) => todo!(),
         }
     }
@@ -540,6 +579,7 @@ pub struct Return {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Stmt {
     Print(Print),
     If(If),
@@ -548,12 +588,96 @@ pub enum Stmt {
     Return(Return),
 }
 
+impl Stmt {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+        match self {
+            Stmt::Print(ref p) => {
+                p.to_print.emit_bc(ch);
+                ch.add_print();
+            }
+            _ => { todo!() }
+        }
+    }
+    fn eval(&self) -> Result<()> {
+        match self {
+            Stmt::Print(ref p) => {
+                let maybe_val = p.to_print.eval()?;
+                println!("{:?}",maybe_val);
+            }
+            _ => { todo!() }
+        }
+        return Ok(());
+    }
+    //NOTE: Does !NOT! parse semicolons.
+    fn parse(ts: TknSlice) -> Result<Box<Stmt>> {
+        if ts.size() == 0 {
+            return Err(new_err(ts.loc(0),"Emptiness"));
+        }
+
+        let first = ts.get(0);
+
+        if first.tkn_type == TokenType::Print {
+            let sub = Expr::parse(ts.sub(1,0))?;
+            return Ok(Box::new(Stmt::Print(Print{locus:ts.loc(0),to_print:sub})));
+        }
+
+        return Err(new_err(ts.loc(0),"idk bcs if statements, while loop, return not implemented yet"));
+    }
+}
+
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Decl {
     FnDecl(FnDecl), 
     Stmt(Stmt), 
     VarDecl(VarDecl), 
     Block(Block), 
+}
+
+impl Decl {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+        match self {
+            Decl::Stmt(ref s) => {
+                s.emit_bc(ch);
+            }
+            Decl::Block(ref b) => {
+                return b.emit_bc(ch);
+            }
+            _ => { todo!() }
+        }
+    }
+    fn eval(&self) -> Result<()> {
+        match self {
+            Decl::Stmt(ref s) => {
+                return s.eval();
+            }
+            Decl::Block(ref b) => {
+                return b.eval();
+            }
+            _ => { todo!() }
+        }
+    }
+    //NOTE: Does !NOT! parse semicolons.
+    fn parse(ts: TknSlice) -> Result<Box<Decl>> {
+        if ts.size() < 2 {
+            return Err(new_err(ts.loc(0),"Emptiness"));
+        }
+
+        let first = ts.get(0);
+        let last = ts.get(ts.end());
+
+        if first.tkn_type == TokenType::LeftBrace && last.tkn_type == TokenType::RightBrace {
+            //TODO: ugl line
+            return Ok(Box::new(Decl::Block(*Block::parse(ts.sub(1,0))?)));
+        }
+
+        if last.tkn_type != TokenType::Semicolon {
+            return Err(new_err(ts.loc(ts.end()),"forgot semicolon?"));
+        }
+
+        //TODO: uggo line
+        return Ok(Box::new(Decl::Stmt(*Stmt::parse(ts.sub(0,ts.end()))?)));
+    }
 }
 
 #[derive(Debug)]
@@ -562,10 +686,71 @@ pub struct Program {
     pub decls: Vec<Box<Decl>>,
 }
 
-pub fn parse(tkns: Vec<Token>) -> Option<Box<Expr>> {
+impl Program {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+        for decl in &self.decls {
+            decl.emit_bc(ch);
+        }
+        ch.add_return();
+    }
+    fn eval(&self) -> Result<()> {
+        for decl in &self.decls {
+            decl.eval()?;
+        }
+        return Ok(());
+    }
+    //NOTE: Does !NOT! eat semicolons.
+    fn parse(ts: TknSlice) -> Result<Box<Program>> {
+        /*
+         * loop through tokens, and break out decls.
+         * decls can have two types
+         * 1. semicoloned
+         * 2. non-semicoloned
+         *
+         * semicoloned expressions match the regex `.*;`
+         * non-semicoloned expressions match the regex `kw.*{.*}`
+         *
+         */
+        let mut loc = 0;
+        let mut brace_cnt = 0;
+        let mut p = Program { locus: 0, decls: vec!() };
+        let mut loc_old = 0;
+
+        while loc != ts.size() {
+            let t = ts.get(loc); 
+            let mut delimit_decl = false;
+            match t.tkn_type {
+                TokenType::LeftBrace => {
+                    brace_cnt += 1;
+                }
+                TokenType::RightBrace => {
+                    if brace_cnt == 0 {
+                        return Err(new_err(loc,"Too many right brace"));
+                    }
+                    delimit_decl = brace_cnt == 1;
+                    brace_cnt -= 1;
+                }
+                TokenType::Semicolon => {
+                    delimit_decl = true;
+                }
+                _ => {}
+            }
+            if delimit_decl && brace_cnt == 0 {
+                let ts2 = ts.sub(loc_old,loc + 1);
+                let decl = Decl::parse(ts2)?;
+                p.decls.push(decl);
+                loc_old = loc+1;
+            }
+            loc += 1;
+        }
+        return Ok(Box::new(p));
+    }
+}
+
+pub fn parse(tkns: Vec<Token>) -> Option<Box<Program>> {
     let tkn_slice = TknSlice { tkns: &tkns, start: 0, end: tkns.len() };
 
-    let maybe_expr = Expr::parse(tkn_slice);
+    let maybe_expr = Program::parse(tkn_slice);
 
     if let Err(e) = maybe_expr {
         e.emit();
@@ -575,12 +760,10 @@ pub fn parse(tkns: Vec<Token>) -> Option<Box<Expr>> {
     return Some(maybe_expr.unwrap());
 }
 
-pub fn eval (exp: Box<Expr>) -> Option<Val> {
-    let maybe_expr = Expr::eval(exp);
+pub fn eval(exp: Box<Program>) {
+    let maybe_expr = Program::eval(&exp);
 
     if let Err(e) = maybe_expr {
         e.emit();
-        return None;
     }
-    return Some(maybe_expr.unwrap()); 
 }
