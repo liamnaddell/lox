@@ -182,7 +182,7 @@ impl Tokenizer {
 
     // check to see if we reached end
     fn at_end(&mut self) -> bool {
-        return (self.locus + 1) == self.src.len();
+        return (self.locus + 1) >= self.src.len();
     }
 
     // check to see if the next character matches c
@@ -263,15 +263,14 @@ impl Tokenizer {
     fn add_token_identifier(&mut self) -> Result<()> {
         let i: usize = self.locus;
 
-        while is_alphanumeric(self.peek_next()) {
+        while !self.at_end() && is_alphanumeric(self.peek()) {
             self.advance();
         }
 
         if self.at_end() {
-            return Err(CompileError::from_str(self.locus, "Forgot something?"));
+            self.locus+=1
         }
 
-        self.advance();
 
         let val = std::str::from_utf8(&self.src[i..self.locus]);
 
