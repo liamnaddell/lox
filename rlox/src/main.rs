@@ -2,6 +2,7 @@ mod token;
 mod parse;
 mod error;
 mod bc;
+mod obj;
 
 use token::*;
 use parse::*;

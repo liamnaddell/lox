@@ -252,13 +252,14 @@ impl Literal {
         use LitKind::*;
         match self.kind {
             StringLit(ref _s) => {
-                todo!();
+                ch.add_const_str(_s);
             }
             Identifier(ref _i) => {
                 todo!();
+                //ch.add_const_str(_i); 
             }
             NumberLit(num) => {
-                ch.add_const(num);
+                ch.add_const_num(num);
             }
             True => {
                 ch.add_true();
