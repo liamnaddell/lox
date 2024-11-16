@@ -39,11 +39,12 @@ impl Opcode {
     }
 }
 
-#[derive(Clone,Copy,PartialEq)]
+#[derive(Clone,PartialEq)]
 pub enum Value {
     Bool(bool),
     Nil,
     Num(f64),
+    String(String),
 }
 
 impl fmt::Display for Value {
@@ -57,6 +58,9 @@ impl fmt::Display for Value {
             }
             Value::Num(fnum) => {
                 write!(f,"{}",fnum)?;
+            }
+            Value::String(fstr) => {
+                write!(f,"{}",fstr)?;
             }
         }
         write!(f,"\n")
@@ -105,8 +109,14 @@ impl Chunk {
     pub fn pop_stack(&mut self) -> Value {
         return self.stack.pop().expect("ICE");
     }
-    pub fn add_const(&mut self,v:f64) {
+    pub fn add_const_num(&mut self,v:f64) {
         self.constants.push(Value::Num(v));
+        let index = self.constants.len()-1;
+        self.code.push(Opcode::OP_CONSTANT as u8);
+        self.code.push(index as u8);
+    }
+    pub fn add_const_str(&mut self, v: &String) {
+        self.constants.push(Value::String(v.clone()));
         let index = self.constants.len()-1;
         self.code.push(Opcode::OP_CONSTANT as u8);
         self.code.push(index as u8);
@@ -195,7 +205,7 @@ impl Chunk {
                         return CompileError;
                     }
 
-                    let v = self.constants[const_index];
+                    let v = self.constants[const_index].clone();
                     self.push_stack(v);
                 }
                 OP_ADD | OP_SUBTRACT | OP_MULTIPLY | OP_DIVIDE => {
@@ -209,6 +219,9 @@ impl Chunk {
                     match (v1,v2) {
                         (Value::Num(f1),Value::Num(f2)) => {
                             self.push_stack(Value::Num(op_fn(f2,f1)));
+                        }
+                        (Value::String(s1), Value::String(s2)) => {
+                            self.push_stack(Value::String(s2 + &s1));
                         }
                         _ => {
                             return RuntimeError;
@@ -336,7 +349,7 @@ impl fmt::Display for Chunk {
                         write!(f," WTFINDEX")?;
                     }
 
-                    let v = self.constants[const_index];
+                    let v = self.constants[const_index].clone();
                     write!(f,"{}",v)?;
                 }
                 OP_NIL | OP_TRUE | OP_EQUAL | OP_FALSE | OP_ADD | OP_SUBTRACT 

@@ -252,13 +252,13 @@ impl Literal {
         use LitKind::*;
         match self.kind {
             StringLit(ref _s) => {
-                todo!();
+                ch.add_const_str(_s);
             }
             Identifier(ref _i) => {
                 todo!();
             }
             NumberLit(num) => {
-                ch.add_const(num);
+                ch.add_const_num(num);
             }
             True => {
                 ch.add_true();
@@ -595,6 +595,11 @@ impl Stmt {
                 p.to_print.emit_bc(ch);
                 ch.add_print();
             }
+            Stmt::Expr(ref e) => {
+                //TODO: Do we need to pop the "returned" value from the expression
+                // off the stack?
+                e.emit_bc(ch);
+            }
             _ => { todo!() }
         }
     }
@@ -603,6 +608,9 @@ impl Stmt {
             Stmt::Print(ref p) => {
                 let maybe_val = p.to_print.eval()?;
                 println!("{:?}",maybe_val);
+            }
+            Stmt::Expr(ref e) => {
+                e.eval()?;
             }
             _ => { todo!() }
         }
@@ -615,13 +623,26 @@ impl Stmt {
         }
 
         let first = ts.get(0);
-
-        if first.tkn_type == TokenType::Print {
-            let sub = Expr::parse(ts.sub(1,0))?;
-            return Ok(Box::new(Stmt::Print(Print{locus:ts.loc(0),to_print:sub})));
+        match first.tkn_type {
+            TokenType::Print => {
+                let sub = Expr::parse(ts.sub(1,0))?;
+                return Ok(Box::new(Stmt::Print(Print{locus:ts.loc(0),to_print:sub}))); 
+            },
+            TokenType::If => {
+                return Err(new_err(ts.loc(0),"idk bcs if statements not implemented yet"));
+            },
+            TokenType::While => {
+                return Err(new_err(ts.loc(0),"idk bcs while loop not implemented yet"));
+            },
+            TokenType::Return => {
+                return Err(new_err(ts.loc(0),"idk bcs return not implemented yet"));
+            },
+            _ => {
+                let sub = Expr::parse(ts.sub(0,0))?;
+                return Ok(Box::new(Stmt::Expr(*sub))); 
+            }
         }
 
-        return Err(new_err(ts.loc(0),"idk bcs if statements, while loop, return not implemented yet"));
     }
 }
 
@@ -657,7 +678,6 @@ impl Decl {
             _ => { todo!() }
         }
     }
-    //NOTE: Does !NOT! parse semicolons.
     fn parse(ts: TknSlice) -> Result<Box<Decl>> {
         if ts.size() < 2 {
             return Err(new_err(ts.loc(0),"Emptiness"));

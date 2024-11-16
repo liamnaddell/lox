@@ -182,7 +182,7 @@ impl Tokenizer {
 
     // check to see if we reached end
     fn at_end(&mut self) -> bool {
-        return (self.locus + 1) == self.src.len();
+        return self.locus == self.src.len();
     }
 
     // check to see if the next character matches c
