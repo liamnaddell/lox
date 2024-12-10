@@ -2,6 +2,7 @@ mod token;
 mod parse;
 mod error;
 mod bc;
+mod eval;
 
 use token::*;
 use parse::*;
@@ -10,6 +11,7 @@ use std::fs::File;
 use std::io::*;
 use std::env;
 use std::process::ExitCode;
+use crate::eval::*;
 
 struct Args {
     bc: bool,
