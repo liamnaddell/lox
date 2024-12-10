@@ -61,7 +61,7 @@ impl<'a> TknSlice<'a> {
 //TODO: This should be merged with bc::Value, thereby implementing Display properly. 
 //this Value should be moved to it's own file, value.rs. However, this cannot be done 
 //until bc properly implements string operations.
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub enum Val {
     StringLit(String),
     NumberLit(f64),
@@ -128,30 +128,8 @@ impl BinOp {
             _ => None
         }
     }
-
     fn min() -> BinOp {
         return cmp::min(BinOp::Minus,BinOp::Or);
-    }
-
-    fn apply(op: &BinOp, left: Val, right: Val, locus: usize ) -> Result<Val> {
-        match (op, left, right) {
-            (BinOp::Minus, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::NumberLit(l - r)),
-            (BinOp::Plus, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::NumberLit(l + r)),
-            (BinOp::Plus, Val::StringLit(l), Val::StringLit(r)) => Ok(Val::StringLit(format!("{l}{r}"))),
-            (BinOp::Slash, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::NumberLit(l / r)),
-            (BinOp::Star, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::NumberLit(l * r)),
-            (BinOp::BangEqual, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::Bool(l != r)),
-            (BinOp::BangEqual, Val::StringLit(l), Val::StringLit(r)) => Ok(Val::Bool(l != r)), 
-            (BinOp::EqualEqual, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::Bool(l == r)),
-            (BinOp::EqualEqual, Val::StringLit(l), Val::StringLit(r)) => Ok(Val::Bool(l == r)),
-            (BinOp::Greater, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::Bool(l > r)), 
-            (BinOp::GreaterEqual, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::Bool(l >= r)), 
-            (BinOp::Less, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::Bool(l < r)), 
-            (BinOp::LessEqual, Val::NumberLit(l), Val::NumberLit(r)) => Ok(Val::Bool(l <= r)), 
-            (BinOp::Or, Val::Bool(l), Val::Bool(r)) => Ok(Val::Bool(l || r)),
-            (BinOp::And, Val::Bool(l), Val::Bool(r)) => Ok(Val::Bool(l && r)),
-            (_, _, _) => Err(new_err(locus,"could not apply binary operation"))?
-        }
     }
 }
 
@@ -174,12 +152,6 @@ impl Block {
         for stmt in &self.stmts {
             stmt.emit_bc(ch);
         }
-    }
-    fn eval(&self) -> Result<()> {
-        for stmt in &self.stmts {
-            stmt.eval()?;
-        }
-        return Ok(());
     }
     //NOTE: removes semicolons
     fn parse(ts: TknSlice) -> Result<Box<Block>> {
@@ -214,6 +186,35 @@ pub struct VarDecl {
     pub locus: usize,
     pub name: String,
     pub value: Box<Expr>
+}
+
+impl VarDecl {
+    fn parse(ts: TknSlice) -> Result<Box<VarDecl>> {
+        //var <ident> = <expr>
+        if ts.size() < 4 {
+            return Err(new_err(ts.loc(0),"Emptiness"));
+        }
+        assert!(ts.get(0).tkn_type == TokenType::Var);
+
+        let ident = ts.get(1);
+        let iname: String;
+        if let TokenType::Identifier(ref s) = ident.tkn_type {
+            iname = s.clone();
+        } else {
+            return Err(new_err(ts.loc(1), "Expected Identifier"));
+        }
+
+        let equals = ts.get(2);
+        if equals.tkn_type != TokenType::Equal {
+            return Err(new_err(ts.loc(2), "Expected equals statement"));
+        }
+
+        let expr = Expr::parse(ts.sub(3,0))?;
+
+        return Ok(Box::new(VarDecl { locus: ts.loc(0)
+            , name:iname
+            , value:expr }));
+    }
 }
 
 #[derive(Debug)]
@@ -309,32 +310,7 @@ impl Literal {
         return Ok(Box::new(Literal {locus:maybe_lit.locus, kind: l}));
     }
 
-    //TODO: Ret val?
-    fn eval(&self) -> Result<Val> {
-        let x = &self.kind;
-        match x {
-            LitKind::StringLit(y) => { 
-                Ok(Val::StringLit(y.clone()))
-            },
-            LitKind::Identifier(_y) => { 
-                todo!();
-            },
-            LitKind::NumberLit(y) => {
-                Ok(Val::NumberLit(*y))
-            },
-            LitKind::True => { 
-                Ok(Val::Bool(true))
-            },
-            LitKind::False => {
-                Ok(Val::Bool(false))
-            },
-            LitKind::Nil => { 
-                Ok(Val::Nil)
-            },
-        } 
-    }
 }
-
 
 #[derive(Debug)]
 pub struct Unary {
@@ -377,28 +353,6 @@ impl Unary {
 
         return Ok(Box::new(Unary { op: una_op, sub: sub_expr, locus: loc}));
     }
-    fn eval(&self) -> Result<Val> {
-        let op = &self.op;
-        let sub = Expr::eval(&self.sub)?;
-        match (op, sub) {
-            (UnaryOp::Sub, Val::NumberLit(y)) => { 
-                Ok(Val::NumberLit(-(y.clone())))
-            },
-            (UnaryOp::Neg, Val::Bool(y)) => { 
-                Ok(Val::Bool(!y))
-            },
-            (UnaryOp::Neg, Val::Nil) => { 
-                // NOT SURE IF THIS IS WHAT WE WANT HERE
-                Ok(Val::Bool(true))
-            },
-            (UnaryOp::Sub, Val::Bool(_)) => { 
-                Err(new_err(self.locus,"why are u applying a neg to a bool?"))?
-            },
-            (_, _) => {
-                Err(new_err(self.locus,"why are u applying a unary operator to a string/identifier/nil?"))?
-            }
-        } 
-    }
 }
 
 #[derive(Debug)]
@@ -417,13 +371,6 @@ pub struct Binary {
 }
 
 impl Binary {
-    //TODO: self????
-    fn eval(&self) -> Result<Val> {
-        let op = &self.op;
-        let left = Expr::eval(&*self.left)?;
-        let right = Expr::eval(&*self.right)?;
-        return BinOp::apply(op, left, right, self.locus);
-    }
     pub fn emit_bc(&self, ch: &mut bc::Chunk) {
         use BinOp::*;
         self.left.emit_bc(ch);
@@ -561,16 +508,6 @@ impl Expr {
         let right: Box<Expr> = Expr::parse(ts.sub(bop_loc+1,0))?;
         return Ok(Box::new(Expr::Binary(Binary {locus:bop_loc,op:bop,left,right})));
     }
-
-    fn eval(&self) -> Result<Val> {
-        match self {
-            Expr::Literal(ref l) => Literal::eval(l),
-            Expr::Unary(ref u) => Unary::eval(u),
-            Expr::Binary(ref b) => Binary::eval(b),
-            Expr::Call(_) => todo!(),
-        }
-    }
-
 }
 
 #[derive(Debug)]
@@ -597,16 +534,6 @@ impl Stmt {
             }
             _ => { todo!() }
         }
-    }
-    fn eval(&self) -> Result<()> {
-        match self {
-            Stmt::Print(ref p) => {
-                let maybe_val = p.to_print.eval()?;
-                println!("{:?}",maybe_val);
-            }
-            _ => { todo!() }
-        }
-        return Ok(());
     }
     //NOTE: Does !NOT! parse semicolons.
     fn parse(ts: TknSlice) -> Result<Box<Stmt>> {
@@ -646,17 +573,6 @@ impl Decl {
             _ => { todo!() }
         }
     }
-    fn eval(&self) -> Result<()> {
-        match self {
-            Decl::Stmt(ref s) => {
-                return s.eval();
-            }
-            Decl::Block(ref b) => {
-                return b.eval();
-            }
-            _ => { todo!() }
-        }
-    }
     //NOTE: Does !NOT! parse semicolons.
     fn parse(ts: TknSlice) -> Result<Box<Decl>> {
         if ts.size() < 2 {
@@ -673,6 +589,11 @@ impl Decl {
 
         if last.tkn_type != TokenType::Semicolon {
             return Err(new_err(ts.loc(ts.end()),"forgot semicolon?"));
+        }
+
+        if first.tkn_type == TokenType::Var {
+            //strip semicolon TODO: Uggo line
+            return Ok(Box::new(Decl::VarDecl(*VarDecl::parse(ts.sub(0,ts.end()))?)));
         }
 
         //TODO: uggo line
@@ -692,12 +613,6 @@ impl Program {
             decl.emit_bc(ch);
         }
         ch.add_return();
-    }
-    fn eval(&self) -> Result<()> {
-        for decl in &self.decls {
-            decl.eval()?;
-        }
-        return Ok(());
     }
     //NOTE: Does !NOT! eat semicolons.
     fn parse(ts: TknSlice) -> Result<Box<Program>> {
@@ -758,12 +673,4 @@ pub fn parse(tkns: Vec<Token>) -> Option<Box<Program>> {
     }
 
     return Some(maybe_expr.unwrap());
-}
-
-pub fn eval(exp: Box<Program>) {
-    let maybe_expr = Program::eval(&exp);
-
-    if let Err(e) = maybe_expr {
-        e.emit();
-    }
 }
