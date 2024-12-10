@@ -1,0 +1,2 @@
+var pig = "useless";
+print pig;
