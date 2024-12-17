@@ -141,6 +141,59 @@ pub struct FnDecl {
     pub fn_def: Box<Block>,
 }
 
+impl FnDecl {
+    fn parse(ts: TknSlice) -> Result<Box<FnDecl>> {
+        let mut args = vec!();
+        //fun name(<args>) {}
+        if ts.size() < 6 {
+            return Err(new_err(ts.loc(0),"Emptiness"));
+        }
+
+        //stage 1: get name
+        assert!(ts.get(0).tkn_type == TokenType::Fun);
+        let name = ts.get(1);
+        let fn_name = {
+            if let TokenType::Identifier(ref fn_name) = name.tkn_type {
+                fn_name
+            } else {
+                return Err(new_err(ts.loc(1),"Function name is not a name"));
+            }
+        };
+
+        //stage 2: parse argument list
+        if ts.get(2).tkn_type != TokenType::LeftParen {
+            return Err(new_err(ts.loc(2),"Function has no args"));
+        }
+
+        let mut i = 3;
+        let mut paren = false;
+        while i < ts.end() {
+            let tkn = ts.get(i);
+
+            if let TokenType::Identifier(ref i) = tkn.tkn_type {
+                args.push(i.clone());
+            }
+            if tkn.tkn_type == TokenType::RightParen {
+                paren = true;
+                break;
+            } else if tkn.tkn_type == TokenType::Comma {
+                i+=1;
+            } else {
+                return Err(new_err(ts.loc(i),"strange token in argument"));
+            }
+        }
+        if !paren {
+            return Err(new_err(ts.loc(i),"function arguemnts do not end with ')'"));
+        }
+        //skip right paren
+        i+=1;
+        let block = Block::parse(ts.sub(i,0))?;
+        return Ok(Box::new(FnDecl {locus:ts.loc(0), name:fn_name.clone(),args:args,fn_def:block}));
+
+
+    }
+}
+
 #[derive(Debug)]
 pub struct Block {
     pub locus: usize,
@@ -611,6 +664,11 @@ impl Decl {
         if first.tkn_type == TokenType::Var {
             //strip semicolon TODO: Uggo line
             return Ok(Box::new(Decl::VarDecl(*VarDecl::parse(ts.sub(0,ts.end()))?)));
+        }
+
+        if first.tkn_type == TokenType::Fun {
+            //strip semicolon TODO: Uggo line
+            return Ok(Box::new(Decl::FnDecl(*FnDecl::parse(ts.sub(0,ts.end()))?)));
         }
 
         //TODO: uggo line

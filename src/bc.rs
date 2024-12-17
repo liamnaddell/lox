@@ -67,6 +67,29 @@ impl fmt::Display for Value {
     }
 }
 
+pub struct Compiler {
+    is_top_lev:bool,
+    func: Function,
+}
+
+pub struct Function {
+    arity: usize,
+    chunk: Chunk,
+    name: String,
+}
+
+impl fmt::Display for Function {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f,"{}\n",self.name)
+    }
+}
+
+impl Function {
+    fn new(arity: usize, chunk: Chunk, name: String) -> Function {
+        return Function {arity,chunk,name};
+    }
+}
+
 pub struct Chunk {
     code: Vec<u8>,
     constants: Vec<Value>,
