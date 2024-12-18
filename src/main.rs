@@ -20,14 +20,15 @@ struct Args {
 }
 fn argparse(args: &Vec<String>) -> Option<Args> {
     let mut arg = Args {
-        bc: false,
+        bc: true,
         file: "".to_string(),
     };
 
     let mut i = 1;
     while i < args.len() {
         if args[i] == "-b" {
-            arg.bc = true;
+            //BC is default. Did not used to be.
+            arg.bc = false;
         } else {
             break;
         }
@@ -59,7 +60,6 @@ fn compiler_main() -> usize {
     }
 
     let arg = arg.unwrap();
-
 
     let mut file = File::open(arg.file).unwrap();
     let mut source = String::new();

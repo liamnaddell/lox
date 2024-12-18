@@ -187,7 +187,11 @@ impl FnDecl {
         }
         //skip right paren
         i+=1;
-        let block = Block::parse(ts.sub(i,0))?;
+        //check for {}
+        if ts.get(i).tkn_type != TokenType::LeftBrace || ts.get(ts.end()).tkn_type != TokenType::RightBrace {
+            return Err(new_err(ts.loc(i),"Function has no {}"));
+        }
+        let block = Block::parse(ts.sub(i+1,ts.end()))?;
         return Ok(Box::new(FnDecl {locus:ts.loc(0), name:fn_name.clone(),args:args,fn_def:block}));
 
 
@@ -208,6 +212,9 @@ impl Block {
     }
     //NOTE: removes semicolons
     fn parse(ts: TknSlice) -> Result<Box<Block>> {
+        //<stmt>;
+        //<stmt>;
+        //...
         let mut b = Block { locus: ts.loc(0), stmts:vec!()};
         let mut loc_old = 0;
         let mut loc = 0;
@@ -717,7 +724,7 @@ impl Program {
                     if brace_cnt == 0 {
                         return Err(new_err(loc,"Too many right brace"));
                     }
-                    delimit_decl = brace_cnt == 1;
+                    //delimit_decl = brace_cnt == 1;
                     brace_cnt -= 1;
                 }
                 TokenType::Semicolon => {
