@@ -193,7 +193,9 @@ impl FnDecl {
         }
         let block = Block::parse(ts.sub(i+1,ts.end()))?;
         return Ok(Box::new(FnDecl {locus:ts.loc(0), name:fn_name.clone(),args:args,fn_def:block}));
+    }
 
+    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
 
     }
 }
@@ -648,7 +650,10 @@ impl Decl {
             Decl::Block(ref b) => {
                 return b.emit_bc(ch);
             }
-            _ => { todo!() }
+            Decl::FnDecl(ref fnd) => {
+                return fnd.emit_bc(ch);
+            }
+            Decl::VarDecl(_) => { todo!() }
         }
     }
     fn parse(ts: TknSlice) -> Result<Box<Decl>> {
