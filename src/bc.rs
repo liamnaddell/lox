@@ -1,5 +1,6 @@
 use std::fmt;
 use crate::Program;
+use std::collections::HashMap;
 
 #[repr(u8)]
 #[derive(Clone,Copy,Ord,PartialOrd,PartialEq,Eq,Debug)]
@@ -22,6 +23,10 @@ enum Opcode {
     OP_LESS,
     OP_AND,
     OP_OR,
+    //create a function on the stack
+    OP_FUNC,
+    //create a function on the stack with arguments after
+    OP_CALL,
 
     //MAKE SURE THIS IS THE LAST ONE!!!!!
     /* NEVER ADD CODE HERE */
@@ -46,6 +51,8 @@ pub enum Value {
     Nil,
     Num(f64),
     String(String),
+    //index into vm.funcs
+    Func(usize),
 }
 
 impl fmt::Display for Value {
@@ -62,6 +69,9 @@ impl fmt::Display for Value {
             }
             Value::String(fstr) => {
                 write!(f,"{}",fstr)?;
+            }
+            Value::Func(i) => {
+                write!(f,"<func: {}>",i)?;
             }
         }
         write!(f,"\n")
@@ -87,17 +97,37 @@ fn is_falsey(v: Value) -> bool {
     return false;
 }
 
+pub struct Function {
+    //index into vm.funcs
+    pub chunk: Chunk,
+    //arity of the function.
+    pub arity: usize,
+}
+impl fmt::Display for Function {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f,"arity:{}> function:\n{}",self.arity,self.chunk)
+    }
+}
+
+#[derive(Clone,Copy)]
+struct Frame {
+    //stored instruction pointer in previous frame (return address)
+    sip: usize,
+    //index into vm.funcs, i.e. which function 
+    func_index: usize,
+}
+
 pub struct VM {
-    stack: Vec<Value>,
-    funcs: Vec<Chunk>,
+    //TODO: Delete this, replace with either global or local variables
+    pub function_name_to_chunk_index: HashMap<String,usize>,
+    pub funcs: Vec<Function>,
+    pub stack: Vec<Value>,
+    pub frames: Vec<Frame>,
 }
 
 impl VM {
-    pub fn new() -> Self {
-        return VM { stack:vec!(),funcs:vec!()};
-    }
-    pub fn display_bc(&self) {
-        println!("{}",self.funcs[0]);
+    pub fn new() -> VM {
+        return VM {function_name_to_chunk_index:HashMap::new(),funcs: vec!(),frames:vec!(),stack:vec!()};
     }
     pub fn stack_len(&self) -> usize {
         return self.stack.len();
@@ -110,6 +140,12 @@ impl VM {
     }
     pub fn pop_stack(&mut self) -> Value {
         return self.stack.pop().expect("ICE");
+    }
+    pub fn display_bc(&self) {
+        for i in 0..self.funcs.len() {
+            let func = &self.funcs[i];
+            println!("<func #{} {}",i,func);
+        }
     }
     fn get_fn(&self,opc:Opcode) -> FBinOp {
         use Opcode::*;
@@ -124,35 +160,59 @@ impl VM {
 
     pub fn compile(&mut self, ast: &Program) {
         let mut cnk = Chunk::new();
-        ast.emit_bc(&mut cnk);
-        self.funcs.push(cnk);
+        ast.emit_bc(&mut cnk,self);
+        self.funcs.push(Function { chunk:cnk,arity:0});
+    }
+
+    pub fn current_frame(&self) -> Frame {
+        assert!(self.frames.len() > 0);
+        let frame = self.frames[self.frames.len() - 1];
+        return frame;
+    }
+
+    pub fn current_func(&self) -> &Function {
+        let findex = self.current_frame().func_index;
+        assert!(findex < self.funcs.len());
+        return &self.funcs[findex];
     }
 
     pub fn current_chunk(&self) -> &Chunk {
-        return &self.funcs[0];
+        return &self.current_func().chunk
     }
+
     pub fn current_code(&self) -> &Vec<u8> {
         return &self.current_chunk().code;
     }
+
     pub fn current_constants(&self) -> &Vec<Value> {
         return &self.current_chunk().constants;
     }
-
 
     pub fn interpret(&mut self) -> InterpretResult {
         use InterpretResult::*;
         use Opcode::*;
         let mut i = 0;
         //start at the main function
+        self.frames.push(Frame { sip: 0, func_index:self.funcs.len()-1 });
+        let mut reset_ip = false;
         loop {
             if i >= self.current_code().len() {
                 panic!("missing return");
             }
             let opc = self.current_code()[i];
             let op = Opcode::from_u8(opc);
+            //TODO: Clean up all of this spammy garbage and get rid of CompileError
             match op {
                 OP_RETURN => { 
-                    return OK;
+                    let frame = self.frames.pop().unwrap();
+
+                    if self.frames.len() == 0 {
+                        //how we return from main function but have full stack
+                        //smells like compiler bug
+                        assert!(self.stack_empty());
+                        return OK;
+                    }
+                    i=frame.sip;
                 }
                 OP_CONSTANT => { 
                     if i + 1 >= self.current_code().len() {
@@ -167,6 +227,40 @@ impl VM {
 
                     let v = self.current_constants()[const_index].clone();
                     self.push_stack(v);
+                }
+                OP_FUNC => { 
+                    if i + 1 >= self.current_code().len() {
+                        return CompileError;
+                    }
+                    //TODO: Fix validation
+                    i+=1;
+                    let func_index = self.current_code()[i] as usize;
+
+                    assert!(func_index < self.funcs.len());
+
+                    self.push_stack(Value::Func(func_index));
+                }
+                OP_CALL => { 
+                    if i + 1 >= self.current_code().len() {
+                        return CompileError;
+                    }
+                    //TODO: Fix validation
+                    i+=1;
+                    let findex = self.current_code()[i] as usize;
+                    if findex >= self.funcs.len() {
+                        return CompileError;
+                    }
+                    let func = &self.funcs[findex];
+
+                    let arity = func.arity;
+                    //TODO: BRAIN ROT?
+                    if self.stack_len() < arity {
+                        return CompileError;
+                    }
+                    i += arity;
+                    //create a new frame, return when complete
+                    self.frames.push(Frame { sip:i,func_index:findex});
+                    reset_ip = true;
                 }
                 OP_ADD | OP_SUBTRACT | OP_MULTIPLY | OP_DIVIDE => {
                     let op_fn = self.get_fn(op);
@@ -279,7 +373,12 @@ impl VM {
                 }
 
             }
-            i+=1;
+            if reset_ip {
+                i=0;
+                reset_ip=false;
+            } else {
+                i+=1;
+            }
         }
     }
 }
@@ -294,6 +393,11 @@ type FBinOp = fn(f64,f64) -> f64;
 impl Chunk {
     pub fn new() -> Chunk {
         return Chunk { code:vec!(),constants: vec!()};
+    }
+    //TODO: Arguments
+    pub fn add_call(&mut self,findex:usize) {
+        self.code.push(Opcode::OP_CALL as u8);
+        self.code.push(findex as u8);
     }
     pub fn add_const_num(&mut self,v:f64) {
         self.constants.push(Value::Num(v));
@@ -384,6 +488,26 @@ impl fmt::Display for Chunk {
 
                     let v = self.constants[const_index].clone();
                     write!(f,"{}",v)?;
+                }
+                OP_FUNC => { 
+                    write!(f,"OP_FUNC\t")?;
+                    if i + 1 >= self.code.len() {
+                        write!(f," WTFEOF")?;
+                    }
+                    i+=1;
+                    let func_index = self.code[i] as usize;
+
+                    write!(f,"{}",func_index)?;
+                }
+                OP_CALL => { 
+                    //TODO: Fix this when we have to deal with arguments...
+                    write!(f,"OP_CALL\t")?;
+                    if i + 1 >= self.code.len() {
+                        write!(f," WTFEOF")?;
+                    }
+                    i+=1;
+                    let func_index = self.code[i] as usize;
+                    write!(f,"{}",func_index)?;
                 }
                 OP_NIL | OP_TRUE | OP_EQUAL | OP_FALSE | OP_ADD | OP_SUBTRACT 
                 | OP_MULTIPLY | OP_DIVIDE | OP_PRINT | OP_NEGATE | OP_NOT 
