@@ -3,9 +3,6 @@ use crate::error::*;
 use std::cmp;
 use crate::bc;
 
-//TINA: 'a is a lifetime. 
-//This thing means "TknSlice CANNOT LIVE past it's vector reference"
-//basically rust extends haskell's algebraic type system to include the lifetime of objects.
 struct TknSlice<'a> {
     tkns: &'a Vec<Token>,
     start: usize,
@@ -15,6 +12,9 @@ struct TknSlice<'a> {
 //TODO: Implement proper pythonized array indexing
 impl<'a> TknSlice<'a> {
     fn loc(&self, index: usize) -> usize {
+        if self.size() == 0 {
+            return self.start;
+        }
         assert!(index < self.size());
         return self.start + index;
     }
@@ -141,6 +141,81 @@ pub struct FnDecl {
     pub fn_def: Box<Block>,
 }
 
+impl FnDecl {
+    pub fn emit_bc(&self, _ch: &mut bc::Chunk, vm: &mut bc::VM) {
+        //TODO: Handle function arguments once we have globals / locals.
+        let name = self.name.clone();
+        //TODO: Properly handle arity
+        assert!(self.args.len() == 0);
+        //basically "for arg in args, emit OP_GET_GLOBAL then OP_SET_GLOBAL" with a mapping of name -> slot
+        let mut sub_cnk = bc::Chunk::new();
+        self.fn_def.emit_bc(&mut sub_cnk,vm);
+        sub_cnk.add_return();
+
+        let func = bc::Function { chunk:sub_cnk, arity: self.args.len()};
+        let findex = vm.funcs.len();
+        vm.funcs.push(func);
+
+        assert!(!vm.function_name_to_chunk_index.contains_key(&name));
+        vm.function_name_to_chunk_index.insert(name,findex);
+    }
+    fn parse(ts: TknSlice) -> Result<Box<FnDecl>> {
+        let mut args = vec!();
+        //fun name(<args>) {}
+        if ts.size() < 6 {
+            return Err(new_err(ts.loc(0),"Emptiness"));
+        }
+
+        //stage 1: get name
+        assert!(ts.get(0).tkn_type == TokenType::Fun);
+        let name = ts.get(1);
+        let fn_name = {
+            if let TokenType::Identifier(ref fn_name) = name.tkn_type {
+                fn_name
+            } else {
+                return Err(new_err(ts.loc(1),"Function name is not a name"));
+            }
+        };
+
+        //stage 2: parse argument list
+        if ts.get(2).tkn_type != TokenType::LeftParen {
+            return Err(new_err(ts.loc(2),"Function has no args"));
+        }
+
+        let mut i = 3;
+        let mut paren = false;
+        while i < ts.end() {
+            let tkn = ts.get(i);
+
+            if let TokenType::Identifier(ref i) = tkn.tkn_type {
+                args.push(i.clone());
+            }
+            if tkn.tkn_type == TokenType::RightParen {
+                paren = true;
+                break;
+            } else if tkn.tkn_type == TokenType::Comma {
+                i+=1;
+            } else {
+                return Err(new_err(ts.loc(i),"strange token in argument"));
+            }
+        }
+        if !paren {
+            return Err(new_err(ts.loc(i),"function arguemnts do not end with ')'"));
+        }
+        //skip right paren
+        i+=1;
+        //check for {}
+        if ts.get(i).tkn_type != TokenType::LeftBrace || ts.get(ts.end()).tkn_type != TokenType::RightBrace {
+            return Err(new_err(ts.loc(i),"Function has no {}"));
+        }
+        let block = Block::parse(ts.sub(i+1,ts.end()))?;
+        return Ok(Box::new(FnDecl {locus:ts.loc(0), name:fn_name.clone(),args:args,fn_def:block}));
+
+
+    }
+}
+
+
 #[derive(Debug)]
 pub struct Block {
     pub locus: usize,
@@ -148,13 +223,16 @@ pub struct Block {
 }
 
 impl Block {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
         for stmt in &self.stmts {
-            stmt.emit_bc(ch);
+            stmt.emit_bc(ch,vm);
         }
     }
     //NOTE: removes semicolons
     fn parse(ts: TknSlice) -> Result<Box<Block>> {
+        //<stmt>;
+        //<stmt>;
+        //...
         let mut b = Block { locus: ts.loc(0), stmts:vec!()};
         let mut loc_old = 0;
         let mut loc = 0;
@@ -320,9 +398,9 @@ pub struct Unary {
 }
 
 impl Unary {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
         use UnaryOp::*;
-        self.sub.emit_bc(ch);
+        self.sub.emit_bc(ch,vm);
         match &self.op {
             //subtract
             Sub => {
@@ -362,6 +440,25 @@ pub struct Call {
     pub args: Vec<Box<Expr>>
 }
 
+impl Call {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk,vm: &mut bc::VM) {
+        //TODO: Argument lists
+        assert!(self.args.len() == 0);
+        //TODO: Error handling...
+        if !vm.function_name_to_chunk_index.contains_key(&self.fn_name) {
+        }
+        let findex = {
+            if let Some(findex) = vm.function_name_to_chunk_index.get(&self.fn_name) {
+                *findex
+            } else {
+                //TODO: Error handling
+                panic!("reference to nonexistent function")
+            }
+        };
+        ch.add_call(findex);
+    }
+}
+
 #[derive(Debug)]
 pub struct Binary {
     pub locus: usize,
@@ -371,10 +468,10 @@ pub struct Binary {
 }
 
 impl Binary {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
         use BinOp::*;
-        self.left.emit_bc(ch);
-        self.right.emit_bc(ch);
+        self.left.emit_bc(ch,vm);
+        self.right.emit_bc(ch,vm);
         match self.op {
             Minus => {ch.add_sub()}
             Plus => {ch.add_add()}
@@ -406,18 +503,20 @@ fn bop_higher_prec(bop:BinOp,maybe_high_prec_bop:BinOp) -> bool {
 }
 
 impl Expr {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk,vm: &mut bc::VM) {
         match &self {
             Expr::Literal(ref l) => {
                 l.emit_bc(ch);
             }
             Expr::Unary(ref u) => {
-                u.emit_bc(ch);
+                u.emit_bc(ch,vm);
             }
             Expr::Binary(ref b) => {
-                b.emit_bc(ch);
+                b.emit_bc(ch,vm);
             }
-            _ => {todo!()}
+            Expr::Call(ref c) => {
+                c.emit_bc(ch,vm);
+            }
         }
     }
     fn parse(mut ts: TknSlice) -> Result<Box<Expr>> {
@@ -450,6 +549,30 @@ impl Expr {
             let una_expr: Box<Expr> = Box::new(Expr::Unary(*una));
             return Ok(una_expr);
         }
+
+        //Third, try to parse a call.
+        if ts.size() > 2 
+            && ts.get(1).tkn_type == TokenType::LeftParen 
+            && ts.get(ts.end()).tkn_type == TokenType::RightParen {
+        if let TokenType::Identifier(ref fnname) = ts.get(0).tkn_type {
+            //TODO: Proper parsing!!
+            //this is actually a call expr
+            let arglist = vec!();
+            /*
+            if b1 && b2 && b3 {
+                for i in 2..ts.end() {
+                    let tkn = ts.get(i);
+                    //TODO: These need to be expressions
+                    if let TokenType::Identifier(ref ident) = tkn {
+                        arglist.push(ident.clone());
+                    } else {
+                        return Err(new_err(ts.loc(i), "Argument to function call is not an identifier"));
+                    }
+                }
+            }
+            */
+            return Ok(Box::new(Expr::Call(Call { locus:ts.loc(0),fn_name:fnname.clone(),args:arglist})));
+        }}
 
         /*
          ******************************************
@@ -526,16 +649,16 @@ pub enum Stmt {
 }
 
 impl Stmt {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
         match self {
             Stmt::Print(ref p) => {
-                p.to_print.emit_bc(ch);
+                p.to_print.emit_bc(ch,vm);
                 ch.add_print();
             }
             Stmt::Expr(ref e) => {
                 //TODO: Do we need to pop the "returned" value from the expression
                 // off the stack?
-                e.emit_bc(ch);
+                e.emit_bc(ch,vm);
             }
             _ => { todo!() }
         }
@@ -580,15 +703,18 @@ pub enum Decl {
 }
 
 impl Decl {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
         match self {
             Decl::Stmt(ref s) => {
-                s.emit_bc(ch);
+                s.emit_bc(ch,vm);
             }
             Decl::Block(ref b) => {
-                return b.emit_bc(ch);
+                return b.emit_bc(ch,vm);
             }
-            _ => { todo!() }
+            Decl::FnDecl(ref fnd) => {
+                return fnd.emit_bc(ch,vm);
+            }
+            Decl::VarDecl(_) => { todo!() }
         }
     }
     fn parse(ts: TknSlice) -> Result<Box<Decl>> {
@@ -613,6 +739,12 @@ impl Decl {
             return Ok(Box::new(Decl::VarDecl(*VarDecl::parse(ts.sub(0,ts.end()))?)));
         }
 
+        if first.tkn_type == TokenType::Fun {
+            //strip semicolon TODO: Uggo line
+            return Ok(Box::new(Decl::FnDecl(*FnDecl::parse(ts.sub(0,ts.end()))?)));
+        }
+
+
         //TODO: uggo line
         return Ok(Box::new(Decl::Stmt(*Stmt::parse(ts.sub(0,ts.end()))?)));
     }
@@ -625,9 +757,9 @@ pub struct Program {
 }
 
 impl Program {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
         for decl in &self.decls {
-            decl.emit_bc(ch);
+            decl.emit_bc(ch,vm);
         }
         ch.add_return();
     }
@@ -659,7 +791,7 @@ impl Program {
                     if brace_cnt == 0 {
                         return Err(new_err(loc,"Too many right brace"));
                     }
-                    delimit_decl = brace_cnt == 1;
+                    //delimit_decl = brace_cnt == 1;
                     brace_cnt -= 1;
                 }
                 TokenType::Semicolon => {

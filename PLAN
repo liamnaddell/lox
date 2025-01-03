@@ -1,0 +1,119 @@
+NOTE: i GOT CONFUSED BECAUSE i THOUGHT THAT YOU WOULD NEED TO PUT VARiABLE iDENTiFERS iN BC AFTER COMPiLATiON BUT THAT DOESN'T MAKE SENSE SO SORRY
+
+We need to implement 
+global variables
+local variables
+functions
+closures
+branching
+
+# Relevant lifetimes
+
+We have 
+* Comptime (AST -> BC)
+* Runtime (eval'ing BC)
+* VM (Comptime+Runtime)
+
+
+# Object lifetimes.
+
+Lifetimes are not really of concern for "primative" types, like bools,ints,strings. However, lifetimes DO matter for primatives encased in closures. 
+
+I'm not sure how to handle object lifetimes yet. The question boils down to asking, "When do I call the destructor for X object".
+
+Strings may be interened (reference counted), primatives have no destructor, but functions and closures are more difficult.
+
+If an object is returned, it must not be destroyed, but an object not being returned is not a valid heuristic for destruction. Consider the following:
+
+```
+fun pancer() {}
+
+fun liam(p) { var x = p;}
+fun tina(p) {var x = p;}
+
+liam(pancer)
+tina(pancer)
+```
+
+If, when returning from `liam`, we realize that `x` was not returned, and therefore is liable to be destroyed, pancer() will point to invalid memory by the time `tina` rolls around. 
+
+I think we might technically be able to scrape by with some really strange rules, for example, "Free if instantated and not returned".
+
+The problem is likely just too hard or impossible to solve, so we probably need a GC, specifically that object destruction can only be called by an object owner, who loans references out to friends. However, we have no idea who owns an object at any time, especially objects like closures
+
+
+# Functions
+
+Each `Function` object is backed by a `Chunk` of bytecode. `Function`'s are objects which may be called by an `OP_CALL` opcode. 
+
+## Calling a function.
+
+The operand to an OP_CALL instruction is an identifier, which maps to a function object. At the global scope, backed by global variables, with nested functions being backed by local variables.
+
+OP_CALL is variadic, with the first argument being an OBJ_FUNCTION and the rest arguments.
+
+Determining the arity of a function is done by dereferencing the identifier at the given scope, with the arity stored therin. 
+
+The return value is placed on the stack. 
+
+Local variables are deallocated on OP_RETURN.
+
+## Compiling a function
+
+you have the compiler recurse into the function to generate a `Chunk`, we then emit an OP_FUNC instruction which pushes an ObjFunction onto the stack. We then emit an OP_SET_LOCAL/GLOBAL as appropriate. 
+
+Compiler-wide, we have a datastructure which interns Chunks (I.e. a mapping from index -> Chunk *), which is valid for the lifetime of the VM. 
+
+When creating an ObjFunction, the arguments provided are the Arity, the Chunk index, and probably some others.
+
+## Global Variables
+
+Global variables are maintained at VMtime (or optionally Runtime, depending on what's easier). We have OP_{SET,GET}_GLOBAL for management. These push/pop from the stack respectively.
+
+## Local Variables
+
+We maintain a frame table for managing local variables, as each function may reference variables found outside it's lexical scope. 
+
+Each frame contains a reference to it's parent frame. The lifetime of a frame is provided by the guarantee that a subframe may not live longer than it's parent frame, with the uppermost frame being valid for the Runtime lifetime. 
+
+Returning from a function destroys the current frame. 
+
+# Closures
+
+After adding support for functions, we wish to refactor in order to support closures.
+
+When compiling a function, and performing variable resolution, if we notice that a given local variable is called from outside the relevant local scope, we have observed a variable which has been closed over. As such, we should emit an OP_CLOJ which takes as an argument, a function, and a set of objects which will be stored in the closure object. When calling a closure, we will restore these objects as local variables, and they may be resolved that way. 
+
+This allows us to emulate the behavior of a function "Taking it's native environment with it" and "discarding future modifications".
+
+How does the counter example work?
+
+```python3
+fun counterFactory() {
+    var cnt = 0;
+    fun counter() {
+        cnt = cnt + 1;
+        return cnt;
+    }
+    return counter;
+}
+
+var ctr = counterFactory();
+
+//1
+print ctr();
+//2
+print ctr();
+//3
+print ctr();
+
+var ctr2 = counterFactory();
+//1
+print ctr2();
+//2
+print ctr2();
+//3
+print ctr2();
+```
+
+counterFactory returns a closure object which stores the cnt object. main() stores the closure as a global variable. We push/call that object 3 times, each time, modifying the `cnt` closed over variable. 
