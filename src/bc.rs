@@ -1,4 +1,5 @@
 use std::fmt;
+use crate::Program;
 
 #[repr(u8)]
 #[derive(Clone,Copy,Ord,PartialOrd,PartialEq,Eq,Debug)]
@@ -67,12 +68,6 @@ impl fmt::Display for Value {
     }
 }
 
-pub struct Chunk {
-    code: Vec<u8>,
-    constants: Vec<Value>,
-    stack: Vec<Value>,
-}
-
 #[derive(Debug,PartialEq)]
 pub enum InterpretResult {
     OK,
@@ -92,10 +87,17 @@ fn is_falsey(v: Value) -> bool {
     return false;
 }
 
-type FBinOp = fn(f64,f64) -> f64;
-impl Chunk {
-    pub fn new() -> Chunk {
-        return Chunk { code:vec!(),constants: vec!(), stack: vec!()};
+pub struct VM {
+    stack: Vec<Value>,
+    funcs: Vec<Chunk>,
+}
+
+impl VM {
+    pub fn new() -> Self {
+        return VM { stack:vec!(),funcs:vec!()};
+    }
+    pub fn display_bc(&self) {
+        println!("{}",self.funcs[0]);
     }
     pub fn stack_len(&self) -> usize {
         return self.stack.len();
@@ -109,66 +111,6 @@ impl Chunk {
     pub fn pop_stack(&mut self) -> Value {
         return self.stack.pop().expect("ICE");
     }
-    pub fn add_const_num(&mut self,v:f64) {
-        self.constants.push(Value::Num(v));
-        let index = self.constants.len()-1;
-        self.code.push(Opcode::OP_CONSTANT as u8);
-        self.code.push(index as u8);
-    }
-    pub fn add_const_str(&mut self, v: &String) {
-        self.constants.push(Value::String(v.clone()));
-        let index = self.constants.len()-1;
-        self.code.push(Opcode::OP_CONSTANT as u8);
-        self.code.push(index as u8);
-    }
-    pub fn add_nil(&mut self) {
-        self.code.push(Opcode::OP_NIL as u8);
-    }
-    pub fn add_true(&mut self) {
-        self.code.push(Opcode::OP_TRUE as u8);
-    }
-    pub fn add_false(&mut self) {
-        self.code.push(Opcode::OP_FALSE as u8);
-    }
-    pub fn add_print(&mut self) {
-        self.code.push(Opcode::OP_PRINT as u8);
-    }
-    pub fn add_add(&mut self) {
-        self.code.push(Opcode::OP_ADD as u8);
-    }
-    pub fn add_sub(&mut self) {
-        self.code.push(Opcode::OP_SUBTRACT as u8);
-    }
-    pub fn add_negate(&mut self) {
-        self.code.push(Opcode::OP_NEGATE as u8);
-    }
-    pub fn add_not(&mut self) {
-        self.code.push(Opcode::OP_NOT as u8);
-    }
-    pub fn add_mul(&mut self) {
-        self.code.push(Opcode::OP_MULTIPLY as u8);
-    }
-    pub fn add_or(&mut self) {
-        self.code.push(Opcode::OP_OR as u8);
-    }
-    pub fn add_and(&mut self) {
-        self.code.push(Opcode::OP_AND as u8);
-    }
-    pub fn add_div(&mut self) {
-        self.code.push(Opcode::OP_DIVIDE as u8);
-    }
-    pub fn add_return(&mut self) {
-        self.code.push(Opcode::OP_RETURN as u8);
-    }
-    pub fn add_equal(&mut self) {
-        self.code.push(Opcode::OP_EQUAL as u8);
-    }
-    pub fn add_greater(&mut self) {
-        self.code.push(Opcode::OP_GREATER as u8);
-    }
-    pub fn add_less(&mut self) {
-        self.code.push(Opcode::OP_LESS as u8);
-    }
     fn get_fn(&self,opc:Opcode) -> FBinOp {
         use Opcode::*;
         return match opc {
@@ -180,32 +122,50 @@ impl Chunk {
         };
     }
 
+    pub fn compile(&mut self, ast: &Program) {
+        let mut cnk = Chunk::new();
+        ast.emit_bc(&mut cnk);
+        self.funcs.push(cnk);
+    }
+
+    pub fn current_chunk(&self) -> &Chunk {
+        return &self.funcs[0];
+    }
+    pub fn current_code(&self) -> &Vec<u8> {
+        return &self.current_chunk().code;
+    }
+    pub fn current_constants(&self) -> &Vec<Value> {
+        return &self.current_chunk().constants;
+    }
+
+
     pub fn interpret(&mut self) -> InterpretResult {
         use InterpretResult::*;
         use Opcode::*;
         let mut i = 0;
+        //start at the main function
         loop {
-            if i >= self.code.len() {
+            if i >= self.current_code().len() {
                 panic!("missing return");
             }
-            let opc = self.code[i];
+            let opc = self.current_code()[i];
             let op = Opcode::from_u8(opc);
             match op {
                 OP_RETURN => { 
                     return OK;
                 }
                 OP_CONSTANT => { 
-                    if i + 1 >= self.code.len() {
+                    if i + 1 >= self.current_code().len() {
                         return CompileError;
                     }
                     i+=1;
-                    let const_index = self.code[i] as usize;
+                    let const_index = self.current_code()[i] as usize;
 
-                    if const_index >= self.constants.len() {
+                    if const_index >= self.current_constants().len() {
                         return CompileError;
                     }
 
-                    let v = self.constants[const_index].clone();
+                    let v = self.current_constants()[const_index].clone();
                     self.push_stack(v);
                 }
                 OP_ADD | OP_SUBTRACT | OP_MULTIPLY | OP_DIVIDE => {
@@ -321,6 +281,79 @@ impl Chunk {
             }
             i+=1;
         }
+    }
+}
+
+pub struct Chunk {
+    code: Vec<u8>,
+    constants: Vec<Value>,
+}
+
+
+type FBinOp = fn(f64,f64) -> f64;
+impl Chunk {
+    pub fn new() -> Chunk {
+        return Chunk { code:vec!(),constants: vec!()};
+    }
+    pub fn add_const_num(&mut self,v:f64) {
+        self.constants.push(Value::Num(v));
+        let index = self.constants.len()-1;
+        self.code.push(Opcode::OP_CONSTANT as u8);
+        self.code.push(index as u8);
+    }
+    pub fn add_const_str(&mut self, v: &String) {
+        self.constants.push(Value::String(v.clone()));
+        let index = self.constants.len()-1;
+        self.code.push(Opcode::OP_CONSTANT as u8);
+        self.code.push(index as u8);
+    }
+    pub fn add_nil(&mut self) {
+        self.code.push(Opcode::OP_NIL as u8);
+    }
+    pub fn add_true(&mut self) {
+        self.code.push(Opcode::OP_TRUE as u8);
+    }
+    pub fn add_false(&mut self) {
+        self.code.push(Opcode::OP_FALSE as u8);
+    }
+    pub fn add_print(&mut self) {
+        self.code.push(Opcode::OP_PRINT as u8);
+    }
+    pub fn add_add(&mut self) {
+        self.code.push(Opcode::OP_ADD as u8);
+    }
+    pub fn add_sub(&mut self) {
+        self.code.push(Opcode::OP_SUBTRACT as u8);
+    }
+    pub fn add_negate(&mut self) {
+        self.code.push(Opcode::OP_NEGATE as u8);
+    }
+    pub fn add_not(&mut self) {
+        self.code.push(Opcode::OP_NOT as u8);
+    }
+    pub fn add_mul(&mut self) {
+        self.code.push(Opcode::OP_MULTIPLY as u8);
+    }
+    pub fn add_or(&mut self) {
+        self.code.push(Opcode::OP_OR as u8);
+    }
+    pub fn add_and(&mut self) {
+        self.code.push(Opcode::OP_AND as u8);
+    }
+    pub fn add_div(&mut self) {
+        self.code.push(Opcode::OP_DIVIDE as u8);
+    }
+    pub fn add_return(&mut self) {
+        self.code.push(Opcode::OP_RETURN as u8);
+    }
+    pub fn add_equal(&mut self) {
+        self.code.push(Opcode::OP_EQUAL as u8);
+    }
+    pub fn add_greater(&mut self) {
+        self.code.push(Opcode::OP_GREATER as u8);
+    }
+    pub fn add_less(&mut self) {
+        self.code.push(Opcode::OP_LESS as u8);
     }
 }
 

@@ -20,14 +20,14 @@ struct Args {
 }
 fn argparse(args: &Vec<String>) -> Option<Args> {
     let mut arg = Args {
-        bc: false,
+        bc: true,
         file: "".to_string(),
     };
 
     let mut i = 1;
     while i < args.len() {
-        if args[i] == "-b" {
-            arg.bc = true;
+        if args[i] == "-e" {
+            arg.bc = false;
         } else {
             break;
         }
@@ -78,13 +78,11 @@ fn compiler_main() -> usize {
     println!("AST: {:?}",ast);
 
     if arg.bc {
-        let mut hunk = Chunk::new();
+        let mut vm = VM::new();
+        vm.compile(ast.as_ref());
+        vm.display_bc();
 
-        ast.emit_bc(&mut hunk);
-
-        println!("{}",hunk);
-
-        let res = hunk.interpret();
+        let res = vm.interpret();
         println!("{:?}",res);
         return (res == InterpretResult::OK) as usize;
     } else {
