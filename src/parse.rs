@@ -267,6 +267,19 @@ pub struct VarDecl {
 }
 
 impl VarDecl {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
+        vm.add_global_var_decl(&self.name);
+        let vindex = {
+            if let Some(vindex) = vm.global_indexes.get(&self.name) {
+                *vindex
+            } else {
+                panic!("Can't create this global var?")
+            }
+        };
+        self.value.emit_bc(ch, vm);
+        ch.add_set_global(vindex);
+    }
+
     fn parse(ts: TknSlice) -> Result<Box<VarDecl>> {
         //var <ident> = <expr>
         if ts.size() < 4 {
@@ -334,7 +347,7 @@ impl Literal {
                 ch.add_const_str(_s);
             }
             Identifier(ref _i) => {
-                todo!();
+                ch.add_get_global(_i);
             }
             NumberLit(num) => {
                 ch.add_const_num(num);
@@ -714,7 +727,9 @@ impl Decl {
             Decl::FnDecl(ref fnd) => {
                 return fnd.emit_bc(ch,vm);
             }
-            Decl::VarDecl(_) => { todo!() }
+            Decl::VarDecl(ref v) => { 
+                return v.emit_bc(ch, vm);
+            }
         }
     }
     fn parse(ts: TknSlice) -> Result<Box<Decl>> {

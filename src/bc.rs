@@ -27,6 +27,8 @@ enum Opcode {
     OP_FUNC,
     //create a function on the stack with arguments after
     OP_CALL,
+    OP_SET_GLOBAL,
+    OP_GET_GLOBAL,
 
     //MAKE SURE THIS IS THE LAST ONE!!!!!
     /* NEVER ADD CODE HERE */
@@ -123,11 +125,13 @@ pub struct VM {
     pub funcs: Vec<Function>,
     pub stack: Vec<Value>,
     pub frames: Vec<Frame>,
+    pub global_indexes: HashMap<String,usize>,
+    pub globals: Vec<Value>,
 }
 
 impl VM {
     pub fn new() -> VM {
-        return VM {function_name_to_chunk_index:HashMap::new(),funcs: vec!(),frames:vec!(),stack:vec!()};
+        return VM {function_name_to_chunk_index:HashMap::new(),funcs: vec!(),frames:vec!(),stack:vec!(), global_indexes:HashMap::new(), globals:vec!()};
     }
     pub fn stack_len(&self) -> usize {
         return self.stack.len();
@@ -177,7 +181,7 @@ impl VM {
     }
 
     pub fn current_chunk(&self) -> &Chunk {
-        return &self.current_func().chunk
+        return &self.current_func().chunk;
     }
 
     pub fn current_code(&self) -> &Vec<u8> {
@@ -186,6 +190,11 @@ impl VM {
 
     pub fn current_constants(&self) -> &Vec<Value> {
         return &self.current_chunk().constants;
+    }
+
+    pub fn add_global_var_decl(&mut self, name: &String) {
+        let ind = self.globals.len();
+        self.global_indexes.insert(name.clone(), ind);
     }
 
     pub fn interpret(&mut self) -> InterpretResult {
@@ -228,6 +237,32 @@ impl VM {
                     let v = self.current_constants()[const_index].clone();
                     self.push_stack(v);
                 }
+
+                OP_SET_GLOBAL => {
+                    if i + 1 >= self.current_code().len() {
+                        return CompileError;
+                    }
+                    i += 1;
+               
+                    let glob_var_index = self.current_code()[i] as usize;
+                    assert!(glob_var_index <= self.globals.len());
+    
+                    let v = self.pop_stack();
+                    self.globals.push(v);
+                }
+                OP_GET_GLOBAL => {
+                    if i + 1 >= self.current_code().len() {
+                        return CompileError;
+                    }
+                    i += 1;
+               
+                    let glob_var_index = (self.current_code()[i] - 1) as usize;
+                    assert!(glob_var_index <= self.globals.len());
+
+                    let v = self.globals[glob_var_index].clone();
+                    self.push_stack(v);
+                }
+
                 OP_FUNC => { 
                     if i + 1 >= self.current_code().len() {
                         return CompileError;
@@ -459,6 +494,16 @@ impl Chunk {
     pub fn add_less(&mut self) {
         self.code.push(Opcode::OP_LESS as u8);
     }
+    pub fn add_get_global(&mut self, vname: &String ) {
+        self.constants.push(Value::String(vname.clone()));
+        let index = self.constants.len()-1;
+        self.code.push(Opcode::OP_GET_GLOBAL as u8);
+        self.code.push(index as u8);
+    }
+    pub fn add_set_global(&mut self, vindex:usize) {
+        self.code.push(Opcode::OP_SET_GLOBAL as u8);
+        self.code.push(vindex as u8);
+    }
 }
 
 impl fmt::Display for Chunk {
@@ -489,6 +534,34 @@ impl fmt::Display for Chunk {
                     let v = self.constants[const_index].clone();
                     write!(f,"{}",v)?;
                 }
+
+                OP_SET_GLOBAL => {
+                    write!(f,"OP_SET_GLOBAL\t")?;
+                    if i + 1 >= self.code.len() {
+                        write!(f," WTFEOF")?;
+                    }
+
+                    i+=1;
+                    let global_index = self.code[i] as usize;
+                    write!(f, "{}", global_index)?; 
+                }
+                
+                OP_GET_GLOBAL => {
+                    write!(f,"OP_GET_GLOBAL\t")?;
+                    if i + 1 >= self.code.len() {
+                        write!(f," WTFEOF")?;
+                    }
+                    i+=1;
+                    let global_index = self.code[i] as usize;
+
+                    if global_index >= self.constants.len() {
+                        write!(f," WTFINDEX")?;
+                    }
+
+                    let v = self.constants[global_index].clone();
+                    write!(f,"{}",v)?; 
+                } 
+
                 OP_FUNC => { 
                     write!(f,"OP_FUNC\t")?;
                     if i + 1 >= self.code.len() {
