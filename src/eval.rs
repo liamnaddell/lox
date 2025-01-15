@@ -123,7 +123,7 @@ impl Expr {
             Expr::Literal(ref l) => l.eval(env),
             Expr::Unary(ref u) => Unary::eval(u,env),
             Expr::Binary(ref b) => Binary::eval(b,env),
-            Expr::Call(_) => todo!(),
+            _ => todo!(),
         }
     }
 }

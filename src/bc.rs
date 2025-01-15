@@ -1,6 +1,7 @@
 use std::fmt;
 use crate::Program;
 use std::collections::HashMap;
+use std::str::FromStr;
 
 #[repr(u8)]
 #[derive(Clone,Copy,Ord,PartialOrd,PartialEq,Eq,Debug)]
@@ -8,6 +9,8 @@ use std::collections::HashMap;
 enum Opcode {
     OP_RETURN = 0,
     OP_CONSTANT,
+    //discard top value on stack
+    OP_POP,
     OP_PRINT,
     OP_ADD,
     OP_SUBTRACT,
@@ -155,6 +158,21 @@ impl VM {
         return index;
     }
 
+    //emit a variable assignment, either to a global or local
+    pub fn emit_assign_var(&mut self, ch: &mut Chunk, var_name: &str) {
+        let index = self.get_id_of_var(var_name);
+        ch.add_set_global(index);
+        //exprs must return something.
+        ch.add_get_global(index);
+
+    }
+
+    pub fn emit_get_var(&mut self, ch: &mut Chunk, var_name: &str) {
+        let index = self.get_id_of_var(var_name);
+        ch.add_get_global(index);
+
+    }
+
     pub fn new() -> VM {
         return VM {funcs: vec!(),frames:vec!(),stack:vec!(), global_indexes:HashMap::new(), globals:vec!()};
     }
@@ -244,6 +262,9 @@ impl VM {
                     }
                     i=frame.sip;
                 }
+                OP_POP => {
+                    let _ = self.pop_stack();
+                }
                 OP_CONSTANT => { 
                     if i + 1 >= self.current_code().len() {
                         return CompileError;
@@ -269,7 +290,13 @@ impl VM {
                     assert!(glob_var_index <= self.globals.len());
     
                     let v = self.pop_stack();
-                    self.globals.push(v);
+                    //no need to create var
+                    if glob_var_index < self.globals.len() {
+                        self.globals[glob_var_index] = v;
+                    } else {
+                        self.globals.push(v);
+                        assert!(self.globals.len() - 1 == glob_var_index);
+                    }
                 }
                 OP_GET_GLOBAL => {
                     if i + 1 >= self.current_code().len() {
@@ -277,7 +304,7 @@ impl VM {
                     }
                     i += 1;
                
-                    let glob_var_index = (self.current_code()[i] - 1) as usize;
+                    let glob_var_index = self.current_code()[i] as usize;
                     assert!(glob_var_index <= self.globals.len());
 
                     let v = self.globals[glob_var_index].clone();
@@ -455,6 +482,9 @@ impl Chunk {
         self.code.push(Opcode::OP_CALL as u8);
         self.code.push(findex as u8);
     }
+    pub fn add_pop(&mut self) {
+        self.code.push(Opcode::OP_POP as u8);
+    }
     pub fn add_const_num(&mut self,v:f64) {
         self.constants.push(Value::Num(v));
         let index = self.constants.len()-1;
@@ -515,9 +545,7 @@ impl Chunk {
     pub fn add_less(&mut self) {
         self.code.push(Opcode::OP_LESS as u8);
     }
-    pub fn add_get_global(&mut self, vname: &String ) {
-        self.constants.push(Value::String(vname.clone()));
-        let index = self.constants.len()-1;
+    pub fn add_get_global(&mut self, index: usize) {
         self.code.push(Opcode::OP_GET_GLOBAL as u8);
         self.code.push(index as u8);
     }
@@ -539,6 +567,9 @@ impl fmt::Display for Chunk {
             match op {
                 OP_RETURN => { 
                     write!(f,"OP_RETURN")?;
+                }
+                OP_POP => {
+                    write!(f,"OP_POP\t")?;
                 }
                 OP_CONSTANT => { 
                     write!(f,"OP_CONSTANT\t")?;
@@ -575,12 +606,7 @@ impl fmt::Display for Chunk {
                     i+=1;
                     let global_index = self.code[i] as usize;
 
-                    if global_index >= self.constants.len() {
-                        write!(f," WTFINDEX")?;
-                    }
-
-                    let v = self.constants[global_index].clone();
-                    write!(f,"{}",v)?; 
+                    write!(f,"{}",global_index)?; 
                 } 
 
                 OP_FUNC => { 

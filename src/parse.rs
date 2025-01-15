@@ -330,14 +330,14 @@ pub struct Literal {
 }
 
 impl Literal {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk) {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
         use LitKind::*;
         match self.kind {
-            StringLit(ref _s) => {
-                ch.add_const_str(_s);
+            StringLit(ref s) => {
+                ch.add_const_str(s);
             }
-            Identifier(ref _i) => {
-                ch.add_get_global(_i);
+            Identifier(ref i) => {
+                vm.emit_get_var(ch,i);
             }
             NumberLit(num) => {
                 ch.add_const_num(num);
@@ -483,12 +483,26 @@ impl Binary {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
+struct Assignment {
+    pub locus: usize,
+    pub var_name: String,
+    pub val_expr: Box<Expr>,
+}
+
+impl Assignment {
+    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
+        self.val_expr.emit_bc(ch,vm);
+        vm.emit_assign_var(ch,&self.var_name);
+    }
+}
+
+#[derive(Debug)]
 pub enum Expr {
     Literal(Literal),
     Unary(Unary),
     Call(Call),
     Binary(Binary),
+    Assignment(Assignment),
 }
 
 fn bop_higher_prec(bop:BinOp,maybe_high_prec_bop:BinOp) -> bool {
@@ -499,7 +513,7 @@ impl Expr {
     pub fn emit_bc(&self, ch: &mut bc::Chunk,vm: &mut bc::VM) {
         match &self {
             Expr::Literal(ref l) => {
-                l.emit_bc(ch);
+                l.emit_bc(ch,vm);
             }
             Expr::Unary(ref u) => {
                 u.emit_bc(ch,vm);
@@ -509,6 +523,9 @@ impl Expr {
             }
             Expr::Call(ref c) => {
                 c.emit_bc(ch,vm);
+            }
+            Expr::Assignment(ref a) => {
+                a.emit_bc(ch,vm);
             }
         }
     }
@@ -566,6 +583,16 @@ impl Expr {
             */
             return Ok(Box::new(Expr::Call(Call { locus:ts.loc(0),fn_name:fnname.clone(),args:arglist})));
         }}
+
+
+        //Fourth, try to parse an assignment.
+        if ts.size() > 2 && ts.get(1).tkn_type == TokenType::Equal {
+            let TokenType::Identifier(ref fnname) = ts.get(0).tkn_type else {
+                return Err(new_err(ts.loc(0), "LHS of assignment is not identifier"));
+            };
+            let sub = Expr::parse(ts.sub(2,0))?;
+            return Ok(Box::new(Expr::Assignment( Assignment {locus:ts.loc(1),var_name:fnname.clone(),val_expr: sub})));
+        }
 
         /*
          ******************************************
@@ -632,7 +659,6 @@ pub struct Return {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub enum Stmt {
     Print(Print),
     If(If),
@@ -649,9 +675,9 @@ impl Stmt {
                 ch.add_print();
             }
             Stmt::Expr(ref e) => {
-                //TODO: Do we need to pop the "returned" value from the expression
-                // off the stack?
                 e.emit_bc(ch,vm);
+                //Expressions return a value on the stack, we discard this value.
+                ch.add_pop();
             }
             _ => { todo!() }
         }
@@ -687,7 +713,6 @@ impl Stmt {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub enum Decl {
     FnDecl(FnDecl), 
     Stmt(Stmt), 
