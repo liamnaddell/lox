@@ -153,11 +153,8 @@ impl FnDecl {
         sub_cnk.add_return();
 
         let func = bc::Function { chunk:sub_cnk, arity: self.args.len()};
-        let findex = vm.funcs.len();
-        vm.funcs.push(func);
 
-        assert!(!vm.function_name_to_chunk_index.contains_key(&name));
-        vm.function_name_to_chunk_index.insert(name,findex);
+        vm.add_function(name,func);
     }
     fn parse(ts: TknSlice) -> Result<Box<FnDecl>> {
         let mut args = vec!();
@@ -268,14 +265,7 @@ pub struct VarDecl {
 
 impl VarDecl {
     pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        vm.add_global_var_decl(&self.name);
-        let vindex = {
-            if let Some(vindex) = vm.global_indexes.get(&self.name) {
-                *vindex
-            } else {
-                panic!("Can't create this global var?")
-            }
-        };
+        let vindex = vm.add_global_var_decl(self.name.clone());
         self.value.emit_bc(ch, vm);
         ch.add_set_global(vindex);
     }
@@ -457,17 +447,7 @@ impl Call {
     pub fn emit_bc(&self, ch: &mut bc::Chunk,vm: &mut bc::VM) {
         //TODO: Argument lists
         assert!(self.args.len() == 0);
-        //TODO: Error handling...
-        if !vm.function_name_to_chunk_index.contains_key(&self.fn_name) {
-        }
-        let findex = {
-            if let Some(findex) = vm.function_name_to_chunk_index.get(&self.fn_name) {
-                *findex
-            } else {
-                //TODO: Error handling
-                panic!("reference to nonexistent function")
-            }
-        };
+        let findex = vm.get_function_index(&self.fn_name);
         ch.add_call(findex);
     }
 }

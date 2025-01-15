@@ -120,18 +120,43 @@ struct Frame {
 }
 
 pub struct VM {
-    //TODO: Delete this, replace with either global or local variables
-    pub function_name_to_chunk_index: HashMap<String,usize>,
+    //Means of storing Function's and their bytecode.
+    //Array indexes are "function id's".
     pub funcs: Vec<Function>,
     pub stack: Vec<Value>,
     pub frames: Vec<Frame>,
-    pub global_indexes: HashMap<String,usize>,
+    //TODO: Comment relation to functions.
+    global_indexes: HashMap<String,usize>,
     pub globals: Vec<Value>,
 }
 
 impl VM {
+    pub fn get_id_of_var(&self, name: &str) -> usize {
+        return *self.global_indexes.get(name).unwrap();
+    }
+
+    pub fn add_global_var_decl(&mut self, name: String) -> usize {
+        let ind = self.globals.len();
+        let old_value = self.global_indexes.insert(name, ind);
+        //TODO: Error handling.
+        assert!(old_value == None);
+        return ind;
+    }
+
+    pub fn add_function(&mut self, name: String, func: Function) {
+        self.funcs.push(func);
+        let ind = self.funcs.len() - 1;
+        self.global_indexes.insert(name, ind);
+    }
+
+    pub fn get_function_index(&mut self, name: &str) -> usize {
+        //TODO: Assert that its a function
+        let index = self.get_id_of_var(name);
+        return index;
+    }
+
     pub fn new() -> VM {
-        return VM {function_name_to_chunk_index:HashMap::new(),funcs: vec!(),frames:vec!(),stack:vec!(), global_indexes:HashMap::new(), globals:vec!()};
+        return VM {funcs: vec!(),frames:vec!(),stack:vec!(), global_indexes:HashMap::new(), globals:vec!()};
     }
     pub fn stack_len(&self) -> usize {
         return self.stack.len();
@@ -192,10 +217,6 @@ impl VM {
         return &self.current_chunk().constants;
     }
 
-    pub fn add_global_var_decl(&mut self, name: &String) {
-        let ind = self.globals.len();
-        self.global_indexes.insert(name.clone(), ind);
-    }
 
     pub fn interpret(&mut self) -> InterpretResult {
         use InterpretResult::*;
