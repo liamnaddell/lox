@@ -1,7 +1,6 @@
 use std::fmt;
 use crate::Program;
 use std::collections::HashMap;
-use std::str::FromStr;
 
 #[repr(u8)]
 #[derive(Clone,Copy,Ord,PartialOrd,PartialEq,Eq,Debug)]
@@ -27,11 +26,14 @@ enum Opcode {
     OP_AND,
     OP_OR,
     //create a function on the stack
+    #[allow(dead_code)]
     OP_FUNC,
     //create a function on the stack with arguments after
     OP_CALL,
     OP_SET_GLOBAL,
     OP_GET_GLOBAL,
+    OP_SET_LOCAL,
+    OP_GET_LOCAL,
 
     //MAKE SURE THIS IS THE LAST ONE!!!!!
     /* NEVER ADD CODE HERE */
@@ -122,59 +124,176 @@ struct Frame {
     func_index: usize,
 }
 
+#[derive(Clone,Copy)]
+struct Decl {
+    //friendly reminder: no decl may have id 0
+    decl_id: u64,
+    scope: u8,
+}
+struct CTStack {
+    decls: [Decl;u8::MAX as usize],
+    //lexical scope depth
+    current_depth: u8,
+    tip: u8,
+}
+
+impl CTStack {
+    fn new() -> CTStack {
+        return CTStack {decls: [Decl {decl_id:0,scope:0};255], tip: 0, current_depth: 0};
+    }
+    fn push_frame(&mut self) {
+        self.current_depth += 1;
+    }
+    fn pop_frame(&mut self) {
+        assert!(self.current_depth != 0);
+        for i in (0..(self.tip as usize)).rev() {
+            assert!(self.decls[i].decl_id != 0);
+            if self.decls[i].scope != self.current_depth {
+                break;
+            }
+            self.decls[i].decl_id = 0;
+            assert!(self.tip != 0);
+            self.tip -= 1;
+        }
+        self.current_depth -= 1;
+    }
+    fn add_decl(&mut self, d:u64) -> u8 {
+        assert!(self.decls[self.tip as usize].decl_id == 0);
+        self.decls[self.tip as usize].decl_id = d;
+        self.decls[self.tip as usize].scope = self.current_depth;
+        let ret = self.tip;
+        self.tip += 1;
+        return ret;
+    }
+    fn get_stack_offset_of_decl(&self, d:u64) -> Option<(u8,Decl)> {
+        let end = self.tip as usize;
+        for i in (0..end).rev() {
+            if self.decls[i].decl_id == d {
+                return Some((i as u8,self.decls[i]));
+            }
+        }
+        return None;
+    }
+}
+
 pub struct VM {
     //Means of storing Function's and their bytecode.
     //Array indexes are "function id's".
     pub funcs: Vec<Function>,
     pub stack: Vec<Value>,
-    pub frames: Vec<Frame>,
-    //TODO: Comment relation to functions.
-    global_indexes: HashMap<String,usize>,
+    frames: Vec<Frame>,
+    //used for allocating ct_name_to_id slots
+    next_id: u64,
+    //A bijection of variable/function names and their associated id's
+    ct_name_to_id: HashMap<String,u64>,
+    //A mapping from variable id to index in the `globals` array
+    ct_global_id_to_index: HashMap<u64,usize>,
     pub globals: Vec<Value>,
+    ct_stack: CTStack,
 }
 
 impl VM {
-    pub fn get_id_of_var(&self, name: &str) -> usize {
-        return *self.global_indexes.get(name).unwrap();
+    pub fn ct_push_scope(&mut self) {
+        self.ct_stack.push_frame();
+    }
+    pub fn ct_pop_scope(&mut self) {
+        self.ct_stack.pop_frame();
+    }
+    pub fn ct_add_decl(&mut self, d:u64) -> u8 {
+        return self.ct_stack.add_decl(d);
+    }
+    fn ct_get_stack_offset_of_decl(&self, d:u64) -> Option<(u8,Decl)> {
+        return self.ct_stack.get_stack_offset_of_decl(d);
+    }
+    pub fn ct_get_id_of_var(&mut self, name: &str) -> u64 {
+        let v = self.ct_name_to_id.get(name);
+        if let Some(id) = v {
+            return *id;
+        }
+
+        let id = self.next_id;
+        self.next_id+=1;
+
+        self.ct_name_to_id.insert(name.to_string(),id);
+        return id;
     }
 
-    pub fn add_global_var_decl(&mut self, name: String) -> usize {
-        let ind = self.globals.len();
-        let old_value = self.global_indexes.insert(name, ind);
-        //TODO: Error handling.
-        assert!(old_value == None);
-        return ind;
-    }
-
-    pub fn add_function(&mut self, name: String, func: Function) {
+    pub fn ct_add_function(&mut self, name: String, func: Function) {
         self.funcs.push(func);
+        let id = self.ct_get_id_of_var(&name);
         let ind = self.funcs.len() - 1;
-        self.global_indexes.insert(name, ind);
+        self.ct_global_id_to_index.insert(id, ind);
     }
 
-    pub fn get_function_index(&mut self, name: &str) -> usize {
+    pub fn ct_get_function_index(&mut self, name: &str) -> usize {
         //TODO: Assert that its a function
-        let index = self.get_id_of_var(name);
+        let id = self.ct_get_id_of_var(name);
+        let index = self.ct_get_global_index(id);
         return index;
     }
 
     //emit a variable assignment, either to a global or local
     pub fn emit_assign_var(&mut self, ch: &mut Chunk, var_name: &str) {
-        let index = self.get_id_of_var(var_name);
-        ch.add_set_global(index);
-        //exprs must return something.
-        ch.add_get_global(index);
+        let id = self.ct_get_id_of_var(var_name);
+        let Some((ofs,decl)) = self.ct_get_stack_offset_of_decl(id) else {
+            assert!(false,"TODO: Error handling");
+            return;
+        };
+        if decl.scope == 0 {
+            let index = self.ct_get_global_index(id);
+            ch.add_set_global(index);
+            //exprs must return something.
+            ch.add_get_global(index);
+            return;
+        }
+        ch.add_set_local(ofs);
+        ch.add_get_local(ofs);
+    }
 
+
+    pub fn ct_get_global_index(&self, id:u64) -> usize {
+        let v = self.ct_global_id_to_index.get(&id);
+        return *v.expect("ICE: Id mismatch");
+    }
+
+    pub fn emit_create_var(&mut self, ch: &mut Chunk, var_name: &str) {
+        let id = self.ct_get_id_of_var(var_name);
+        //NOTE: Technically not useful for global variables...
+        let ofs = self.ct_add_decl(id);
+        if self.ct_stack.current_depth == 0 {
+            //global var
+            let index = self.globals.len();
+            let old_value = self.ct_global_id_to_index.insert(id,index);
+            //TODO: Error handling.
+            assert!(old_value == None);
+            ch.add_set_global(index);
+        } else {
+            //local var
+            ch.add_set_local(ofs);
+        }
     }
 
     pub fn emit_get_var(&mut self, ch: &mut Chunk, var_name: &str) {
-        let index = self.get_id_of_var(var_name);
-        ch.add_get_global(index);
-
+        let id = self.ct_get_id_of_var(var_name);
+        let (ofs,decl) = self.ct_get_stack_offset_of_decl(id).expect("ICE: reference to id which does not exist");
+        if decl.scope == 0 {
+            let index = self.ct_get_global_index(id);
+            ch.add_get_global(index);
+            return;
+        }
+        ch.add_get_local(ofs);
     }
 
     pub fn new() -> VM {
-        return VM {funcs: vec!(),frames:vec!(),stack:vec!(), global_indexes:HashMap::new(), globals:vec!()};
+        return VM {funcs: vec!(),
+            frames:vec!(),
+            stack:vec!(),
+            ct_name_to_id:HashMap::new(),
+            ct_global_id_to_index: HashMap::new(),
+            globals:vec!(),
+            ct_stack: CTStack::new(),
+            next_id:1
+        };
     }
     pub fn stack_len(&self) -> usize {
         return self.stack.len();
@@ -211,7 +330,7 @@ impl VM {
         self.funcs.push(Function { chunk:cnk,arity:0});
     }
 
-    pub fn current_frame(&self) -> Frame {
+    fn current_frame(&self) -> Frame {
         assert!(self.frames.len() > 0);
         let frame = self.frames[self.frames.len() - 1];
         return frame;
@@ -297,6 +416,33 @@ impl VM {
                         self.globals.push(v);
                         assert!(self.globals.len() - 1 == glob_var_index);
                     }
+                }
+                OP_SET_LOCAL => {
+                    if i + 1 >= self.current_code().len() {
+                        return CompileError;
+                    }
+                    i += 1;
+                    let loc_var_no = self.current_code()[i] as usize;
+                    assert!(loc_var_no < self.stack.len());
+                    //setting a new local in the current scope
+                    if loc_var_no == self.stack.len ()-1 {
+                        //do nothing.
+                    } else {
+                        assert!(self.stack.len() != 0);
+                        let v = self.pop_stack();
+                        self.stack[loc_var_no] = v;
+                    }
+    
+                }
+                OP_GET_LOCAL => {
+                    if i + 1 >= self.current_code().len() {
+                        return CompileError;
+                    }
+                    i += 1;
+                    let loc_var_no = self.current_code()[i] as usize;
+                    assert!(loc_var_no < self.stack.len());
+                    let v = self.stack[loc_var_no].clone();
+                    self.stack.push(v);
                 }
                 OP_GET_GLOBAL => {
                     if i + 1 >= self.current_code().len() {
@@ -553,6 +699,14 @@ impl Chunk {
         self.code.push(Opcode::OP_SET_GLOBAL as u8);
         self.code.push(vindex as u8);
     }
+    pub fn add_set_local(&mut self, ofs:u8) {
+        self.code.push(Opcode::OP_SET_LOCAL as u8);
+        self.code.push(ofs);
+    }
+    pub fn add_get_local(&mut self, ofs: u8) {
+        self.code.push(Opcode::OP_GET_LOCAL as u8);
+        self.code.push(ofs);
+    }
 }
 
 impl fmt::Display for Chunk {
@@ -608,7 +762,26 @@ impl fmt::Display for Chunk {
 
                     write!(f,"{}",global_index)?; 
                 } 
+                OP_GET_LOCAL => {
+                    write!(f,"OP_GET_LOCAL\t")?;
+                    if i + 1 >= self.code.len() {
+                        write!(f," WTFEOF")?;
+                    }
+                    i+=1;
+                    let index = self.code[i] as usize;
 
+                    write!(f,"{}",index)?; 
+                } 
+                OP_SET_LOCAL => {
+                    write!(f,"OP_SET_LOCAL\t")?;
+                    if i + 1 >= self.code.len() {
+                        write!(f," WTFEOF")?;
+                    }
+                    i+=1;
+                    let index = self.code[i] as usize;
+
+                    write!(f,"{}",index)?; 
+                } 
                 OP_FUNC => { 
                     write!(f,"OP_FUNC\t")?;
                     if i + 1 >= self.code.len() {

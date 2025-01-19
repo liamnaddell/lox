@@ -135,6 +135,7 @@ impl BinOp {
 
 #[derive(Debug)]
 pub struct FnDecl {
+    #[allow(dead_code)]
     pub locus: usize,
     pub name: String,
     pub args: Vec<String>,
@@ -154,7 +155,7 @@ impl FnDecl {
 
         let func = bc::Function { chunk:sub_cnk, arity: self.args.len()};
 
-        vm.add_function(name,func);
+        vm.ct_add_function(name,func);
     }
     fn parse(ts: TknSlice) -> Result<Box<FnDecl>> {
         let mut args = vec!();
@@ -215,15 +216,18 @@ impl FnDecl {
 
 #[derive(Debug)]
 pub struct Block {
+    #[allow(dead_code)]
     pub locus: usize,
     pub stmts: Vec<Box<Stmt>>,
 }
 
 impl Block {
     pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
+        vm.ct_push_scope();
         for stmt in &self.stmts {
             stmt.emit_bc(ch,vm);
         }
+        vm.ct_pop_scope();
     }
     //NOTE: removes semicolons
     fn parse(ts: TknSlice) -> Result<Box<Block>> {
@@ -252,12 +256,14 @@ impl Block {
 
 #[derive(Debug)]
 pub struct Print {
+    #[allow(dead_code)]
     pub locus: usize,
     pub to_print: Box<Expr>,
 }
 
 #[derive(Debug)]
 pub struct VarDecl {
+    #[allow(dead_code)]
     pub locus: usize,
     pub name: String,
     pub value: Box<Expr>
@@ -265,9 +271,8 @@ pub struct VarDecl {
 
 impl VarDecl {
     pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        let vindex = vm.add_global_var_decl(self.name.clone());
         self.value.emit_bc(ch, vm);
-        ch.add_set_global(vindex);
+        vm.emit_create_var(ch,&self.name);
     }
 
     fn parse(ts: TknSlice) -> Result<Box<VarDecl>> {
@@ -299,6 +304,7 @@ impl VarDecl {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct If {
     pub locus: usize,
     pub cond: Box<Expr>,
@@ -307,6 +313,7 @@ pub struct If {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct While {
     pub locus: usize,
     pub is_true: Box<Expr>,
@@ -438,6 +445,7 @@ impl Unary {
 
 #[derive(Debug)]
 pub struct Call {
+    #[allow(dead_code)]
     pub locus: usize,
     pub fn_name: String,
     pub args: Vec<Box<Expr>>
@@ -447,7 +455,7 @@ impl Call {
     pub fn emit_bc(&self, ch: &mut bc::Chunk,vm: &mut bc::VM) {
         //TODO: Argument lists
         assert!(self.args.len() == 0);
-        let findex = vm.get_function_index(&self.fn_name);
+        let findex = vm.ct_get_function_index(&self.fn_name);
         ch.add_call(findex);
     }
 }
@@ -483,7 +491,8 @@ impl Binary {
 }
 
 #[derive(Debug)]
-struct Assignment {
+pub struct Assignment {
+    #[allow(dead_code)]
     pub locus: usize,
     pub var_name: String,
     pub val_expr: Box<Expr>,
@@ -655,16 +664,21 @@ impl Expr {
 
 #[derive(Debug)]
 pub struct Return {
+    #[allow(dead_code)]
     pub locus: usize,
 }
 
 #[derive(Debug)]
 pub enum Stmt {
     Print(Print),
+    #[allow(dead_code)]
     If(If),
+    #[allow(dead_code)]
     While(While),
     Expr(Expr),
+    #[allow(dead_code)]
     Return(Return),
+    VarDecl(VarDecl), 
 }
 
 impl Stmt {
@@ -678,6 +692,9 @@ impl Stmt {
                 e.emit_bc(ch,vm);
                 //Expressions return a value on the stack, we discard this value.
                 ch.add_pop();
+            }
+            Stmt::VarDecl(ref v) => { 
+                return v.emit_bc(ch, vm);
             }
             _ => { todo!() }
         }
@@ -694,6 +711,10 @@ impl Stmt {
                 let sub = Expr::parse(ts.sub(1,0))?;
                 return Ok(Box::new(Stmt::Print(Print{locus:ts.loc(0),to_print:sub}))); 
             },
+            TokenType::Var => {
+                return Ok(Box::new(Stmt::VarDecl(*VarDecl::parse(ts.sub(0,0))?)));
+            },
+
             TokenType::If => {
                 return Err(new_err(ts.loc(0),"idk bcs if statements not implemented yet"));
             },
@@ -716,7 +737,6 @@ impl Stmt {
 pub enum Decl {
     FnDecl(FnDecl), 
     Stmt(Stmt), 
-    VarDecl(VarDecl), 
     Block(Block), 
 }
 
@@ -731,9 +751,6 @@ impl Decl {
             }
             Decl::FnDecl(ref fnd) => {
                 return fnd.emit_bc(ch,vm);
-            }
-            Decl::VarDecl(ref v) => { 
-                return v.emit_bc(ch, vm);
             }
         }
     }
@@ -754,11 +771,6 @@ impl Decl {
             return Err(new_err(ts.loc(ts.end()),"forgot semicolon?"));
         }
 
-        if first.tkn_type == TokenType::Var {
-            //strip semicolon TODO: Uggo line
-            return Ok(Box::new(Decl::VarDecl(*VarDecl::parse(ts.sub(0,ts.end()))?)));
-        }
-
         if first.tkn_type == TokenType::Fun {
             //strip semicolon TODO: Uggo line
             return Ok(Box::new(Decl::FnDecl(*FnDecl::parse(ts.sub(0,ts.end()))?)));
@@ -772,6 +784,7 @@ impl Decl {
 
 #[derive(Debug)]
 pub struct Program {
+    #[allow(dead_code)]
     pub locus: usize,
     pub decls: Vec<Box<Decl>>,
 }
