@@ -1,0 +1,6 @@
+fun hello() {
+    var b = 2;
+    print b;
+};
+
+hello();

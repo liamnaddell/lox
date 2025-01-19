@@ -44,7 +44,7 @@ impl Env {
 }
 
 impl Block {
-    fn eval(&self, env: &Env) -> Result<()> {
+    fn eval(&self, env: &mut Env) -> Result<()> {
         for stmt in &self.stmts {
             stmt.eval(env)?;
         }
@@ -129,7 +129,7 @@ impl Expr {
 }
 
 impl Stmt {
-    fn eval(&self, env: &Env) -> Result<()> {
+    fn eval(&self, env: &mut Env) -> Result<()> {
         match self {
             Stmt::Print(ref p) => {
                 let maybe_val = p.to_print.eval(env)?;
@@ -137,6 +137,9 @@ impl Stmt {
             }
             Stmt::Expr(ref e) => {
                 e.eval(env)?;
+            }
+            Stmt::VarDecl(ref vd) => {
+                return vd.eval(env);
             }
             _ => { todo!() }
         }
@@ -159,9 +162,6 @@ impl Decl {
             }
             Decl::Block(ref b) => {
                 return b.eval(env);
-            }
-            Decl::VarDecl(ref vd) => {
-                return vd.eval(env);
             }
             _ => { todo!() }
         }
