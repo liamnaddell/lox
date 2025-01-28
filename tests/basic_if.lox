@@ -1,0 +1,6 @@
+var a = 2;
+if ( a == 2 ) 
+    print("simple if has been implemented???");
+
+if ( a == 4)
+    print("why is this printed");

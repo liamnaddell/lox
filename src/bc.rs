@@ -25,6 +25,8 @@ enum Opcode {
     OP_LESS,
     OP_AND,
     OP_OR,
+    OP_JUMP_IF_FALSE,
+    OP_JUMP,
     //create a function on the stack
     #[allow(dead_code)]
     OP_FUNC,
@@ -52,7 +54,7 @@ impl Opcode {
     }
 }
 
-#[derive(Clone,PartialEq)]
+#[derive(Clone,PartialEq, Debug)]
 pub enum Value {
     Bool(bool),
     Nil,
@@ -92,12 +94,12 @@ pub enum InterpretResult {
     RuntimeError,
 }
 
-fn is_falsey(v: Value) -> bool {
+fn is_falsey(v: &Value) -> bool {
     if let Value::Bool(b) = v {
-        return b == false;
+        return *b == false;
     }
 
-    if v == Value::Nil {
+    if *v == Value::Nil {
         return true;
     }
 
@@ -284,6 +286,26 @@ impl VM {
         ch.add_get_local(ofs);
     }
 
+    pub fn patch_jump(&mut self, ch: &mut Chunk, pos: usize) {
+        //jump to the END of the current function.
+        let offset = ch.code.len() - pos;
+
+        let offset = match u8::try_from(offset) {
+            Ok(offset) => offset,
+            Err(_) => {
+                panic!("jump too big"); 
+            }
+        };
+
+        let opc = ch.code[pos -1];
+        let op = Opcode::from_u8(opc);
+        match op {
+            Opcode::OP_JUMP_IF_FALSE => ch.code[pos] = offset,
+            Opcode::OP_JUMP => ch.code[pos] = offset,
+            _ => panic!("cant do jump at this opcode"),
+        }
+    }
+
     pub fn new() -> VM {
         return VM {funcs: vec!(),
             frames:vec!(),
@@ -362,6 +384,7 @@ impl VM {
         //start at the main function
         self.frames.push(Frame { sip: 0, func_index:self.funcs.len()-1 });
         let mut reset_ip = false;
+        let mut skip_increment = false;
         loop {
             if i >= self.current_code().len() {
                 panic!("missing return");
@@ -372,7 +395,6 @@ impl VM {
             match op {
                 OP_RETURN => { 
                     let frame = self.frames.pop().unwrap();
-
                     if self.frames.len() == 0 {
                         //how we return from main function but have full stack
                         //smells like compiler bug
@@ -570,7 +592,7 @@ impl VM {
                     }
                     let v1 = self.pop_stack();
 
-                    self.push_stack(Value::Bool(is_falsey(v1)));
+                    self.push_stack(Value::Bool(is_falsey(&v1)));
                 }
                 OP_AND | OP_OR => {
                     if self.stack_len() < 2 {
@@ -591,6 +613,29 @@ impl VM {
                         _ => {return RuntimeError;}
                     }
                 }
+                OP_JUMP_IF_FALSE => {
+                    if i + 2 >= self.current_code().len() {
+                        return CompileError;
+                    }
+                    i+=1;
+                    let jump_offset = self.current_code()[i] as usize;
+
+                    let cond = &self.stack[self.stack_len() - 1];
+                    if is_falsey(cond) {
+                        i+= jump_offset;
+                        self.pop_stack();
+                        skip_increment = true;
+                    }
+                }
+                OP_JUMP => {
+                    if i + 1 >= self.current_code().len() {
+                        return CompileError;
+                    }
+                    i+=1;
+                    let jump_offset = self.current_code()[i] as usize;
+                    i += jump_offset;
+                    skip_increment = true;
+                }
                 OP_PRINT => {
                     if self.stack_empty() {
                         return CompileError;
@@ -606,9 +651,10 @@ impl VM {
             if reset_ip {
                 i=0;
                 reset_ip=false;
-            } else {
+            } else if !skip_increment {
                 i+=1;
             }
+            skip_increment = false;
         }
     }
 }
@@ -708,6 +754,16 @@ impl Chunk {
         self.code.push(Opcode::OP_GET_LOCAL as u8);
         self.code.push(ofs);
     }
+    pub fn add_jump_if(&mut self, ofs: u8) -> usize{
+        self.code.push(Opcode::OP_JUMP_IF_FALSE as u8);
+        self.code.push(ofs);
+        return self.code.len() -1;
+    }
+    pub fn add_jump_else(&mut self, ofs: u8) -> usize {
+        self.code.push(Opcode::OP_JUMP as u8);
+        self.code.push(ofs);
+        return self.code.len() -1;
+    }
 }
 
 impl fmt::Display for Chunk {
@@ -803,6 +859,28 @@ impl fmt::Display for Chunk {
                     let func_index = self.code[i] as usize;
                     write!(f,"{}",func_index)?;
                 }
+
+                OP_JUMP_IF_FALSE => {
+                    write!(f,"OP_JUMP_IF_FALSE\t")?;
+                    if i + 1 >= self.code.len() {
+                        write!(f," WTFEOF")?;
+                    }
+                    i+=1;
+                    let index = self.code[i] as usize;
+
+                    write!(f,"{}",index)?;  
+                }
+                OP_JUMP => {
+                    write!(f,"OP_JUMP\t")?;
+                    if i + 1 >= self.code.len() {
+                        write!(f," WTFEOF")?;
+                    }
+                    i+=1;
+                    let index = self.code[i] as usize;
+
+                    write!(f,"{}",index)?; 
+                } 
+
                 OP_NIL | OP_TRUE | OP_EQUAL | OP_FALSE | OP_ADD | OP_SUBTRACT 
                 | OP_MULTIPLY | OP_DIVIDE | OP_PRINT | OP_NEGATE | OP_NOT 
                 | OP_GREATER | OP_LESS | OP_AND | OP_OR => {
