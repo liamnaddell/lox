@@ -304,12 +304,72 @@ impl VarDecl {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct If {
     pub locus: usize,
     pub cond: Box<Expr>,
     pub then: Box<Stmt>,
     pub or_else: Option<Box<Stmt>>,
+}
+
+impl If {
+    //ifStmt         → "if" "(" expression ")" statement
+    //                              ( "else" statement )? ;
+    pub fn emit_bc (&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
+        todo!()
+    }
+
+    fn parse(ts: TknSlice) -> Result<Box<If>> {
+
+        let left_paren = ts.get(1);
+        // find index of right paranthesis
+        let mut i = 2;
+
+        if left_paren.tkn_type == TokenType::LeftParen {
+            // not sure we need the ts size thing here
+            while ts.size() > 2 && ts.get(i).tkn_type != TokenType::RightParen {
+                i += 1;
+            }
+            println!("Currently at: {:?}", ts.get(i).tkn_type);
+            i+=1;
+            let cond = Expr::parse(ts.sub(1,i))?;
+            
+            // parse the statemet (then)
+            let idx = i;
+            while ts.get(i + 1).tkn_type != TokenType::Else &&
+                ts.end() != (i+1){
+                    i += 1;
+            }
+
+            let then = Stmt::parse(ts.sub(idx,
+                if ts.get(i+1).tkn_type == TokenType::Else { i } else { i + 2}))?;
+
+            // if there is more left, parse or_else
+            if ts.get(i).tkn_type == TokenType::Else {
+                let idx = i + 1;
+                i = ts.end();
+                while ts.get(i).tkn_type != TokenType::RightParen {
+                    i -= 1;
+                }
+
+                let or_else = Stmt::parse(ts.sub(idx,i))?;
+
+
+                return Ok(Box::new(If { locus: ts.loc(0)
+                    , cond: cond
+                    , then: then
+                    , or_else: Some(or_else) }));
+            }
+            // done??
+        
+            return Ok(Box::new(If { locus: ts.loc(0)
+                , cond: cond
+                , then: then
+                , or_else: None }));
+
+        }
+
+        return Err(new_err(ts.loc(ts.end()),"messed up if statement somehow"));
+    }
 }
 
 #[derive(Debug)]
@@ -671,7 +731,6 @@ pub struct Return {
 #[derive(Debug)]
 pub enum Stmt {
     Print(Print),
-    #[allow(dead_code)]
     If(If),
     #[allow(dead_code)]
     While(While),
@@ -716,7 +775,7 @@ impl Stmt {
             },
 
             TokenType::If => {
-                return Err(new_err(ts.loc(0),"idk bcs if statements not implemented yet"));
+                return Ok(Box::new(Stmt::If(*If::parse(ts.sub(0,0))?))); 
             },
             TokenType::While => {
                 return Err(new_err(ts.loc(0),"idk bcs while loop not implemented yet"));
