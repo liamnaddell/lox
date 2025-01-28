@@ -315,12 +315,92 @@ impl VarDecl {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct If {
     pub locus: usize,
     pub cond: Box<Expr>,
     pub then: Box<Stmt>,
     pub or_else: Option<Box<Stmt>>,
+}
+
+impl If {
+    pub fn emit_bc (&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
+        // emit expr:
+        self.cond.emit_bc(ch, vm);
+        // emit the op (then jump)
+        let then = ch.add_jump_if(0xff);
+        //emit stmt
+        self.then.emit_bc(ch, vm);
+        ch.add_pop();
+        
+        match &self.or_else {
+            None => {
+                vm.patch_jump(ch, then);
+            },
+            Some(s) => {
+                let or_else = ch.add_jump_else(0xff);
+                vm.patch_jump(ch, then);
+                s.emit_bc(ch, vm);
+                vm.patch_jump(ch, or_else);
+            }
+        }
+    }
+    fn parse(ts: TknSlice) -> Result<Box<If>> {
+
+        let left_paren = ts.get(1);
+
+        if left_paren.tkn_type == TokenType::LeftParen {
+            // find index of right paranthesis
+            let mut i = 2;
+            let mut paren_cnt = 1;
+            while ts.end() != (i+1) && paren_cnt != 0 {
+                i += 1;
+                if ts.get(i).tkn_type == TokenType::RightParen {
+                    paren_cnt -= 1;
+                }
+                if ts.get(i).tkn_type == TokenType::LeftParen {
+                    paren_cnt +=1;
+                }
+            }
+
+            if paren_cnt != 0 {
+                return Err(new_err(ts.loc(ts.end()),"messed up the if cond")); 
+            }
+            
+            i+=1;
+            let cond = Expr::parse(ts.sub(1,i))?;
+            
+            // parse the statemet (then)
+            let idx = i;
+            while ts.end() != (i+1) && ts.get(i + 1).tkn_type != TokenType::Else {
+                    i += 1;
+            }
+
+            let then = Stmt::parse(ts.sub(idx,
+                if ts.get(i+1).tkn_type == TokenType::Else { i } else { i + 2}))?;
+
+            // if there is more left, parse or_else
+            if ts.get(i+1).tkn_type == TokenType::Else {
+                let idx = i + 2;
+                i = ts.end();
+                while ts.get(i).tkn_type != TokenType::RightParen {
+                    i -= 1;
+                }
+
+                let or_else = Stmt::parse(ts.sub(idx,i))?;
+
+                return Ok(Box::new(If { locus: ts.loc(0)
+                    , cond: cond
+                    , then: then
+                    , or_else: Some(or_else) }));
+            }
+            return Ok(Box::new(If { locus: ts.loc(0)
+                , cond: cond
+                , then: then
+                , or_else: None }));
+        }
+
+        return Err(new_err(ts.loc(ts.end()),"messed up if statement somehow"));
+    }
 }
 
 #[derive(Debug)]
@@ -714,7 +794,6 @@ pub struct Return {
 #[derive(Debug)]
 pub enum Stmt {
     Print(Print),
-    #[allow(dead_code)]
     If(If),
     #[allow(dead_code)]
     While(While),
@@ -739,6 +818,9 @@ impl Stmt {
             Stmt::VarDecl(ref v) => { 
                 return v.emit_bc(ch, vm);
             }
+            Stmt::If(ref i) => {
+                return i.emit_bc(ch, vm);
+            }
             _ => { todo!() }
         }
     }
@@ -759,7 +841,7 @@ impl Stmt {
             },
 
             TokenType::If => {
-                return Err(new_err(ts.loc(0),"idk bcs if statements not implemented yet"));
+                return Ok(Box::new(Stmt::If(*If::parse(ts.sub(0,0))?))); 
             },
             TokenType::While => {
                 return Err(new_err(ts.loc(0),"idk bcs while loop not implemented yet"));
