@@ -25,6 +25,8 @@ enum Opcode {
     OP_LESS,
     OP_AND,
     OP_OR,
+    OP_JUMP_IF_FALSE,
+    OP_JUMP_ELSE,
     //create a function on the stack
     #[allow(dead_code)]
     OP_FUNC,
@@ -52,7 +54,7 @@ impl Opcode {
     }
 }
 
-#[derive(Clone,PartialEq)]
+#[derive(Clone,PartialEq, Debug)]
 pub enum Value {
     Bool(bool),
     Nil,
@@ -284,6 +286,39 @@ impl VM {
         ch.add_get_local(ofs);
     }
 
+    pub fn emit_create_if(&mut self, ch: &mut Chunk) -> usize {
+        // need to do some jumping? maybe this is the way???
+        // let id = self.next_id;
+        // self.next_id += 1;
+
+        // let ofs = self.ct_add_decl(id);
+        return ch.add_jump_if(0xff);
+        // "We use two bytes for the jump offset operand. 
+        //A 16-bit offset lets us jump over up to 65,535 bytes of code, which should be plenty for our needs."
+        // not sure if this does the same thing?
+        // idk if need this even???
+        // self.next_id += 2;
+    }
+
+    pub fn patch_jump(&mut self, ch: &mut Chunk, ofs: usize) {
+        // println!("if there is any god here??? {:?}", ofs);
+        let offset = ch.code.len() - 1 - ofs;
+        let offset = match u8::try_from(offset) {
+            Ok(offset) => offset,
+            Err(_) => {
+                panic!("jump too big"); 
+            }
+        };
+
+        let opc = ch.code[ofs -1];
+        let op = Opcode::from_u8(opc);
+        match op {
+            Opcode::OP_JUMP_IF_FALSE => ch.code[ofs] = offset,
+            Opcode::OP_JUMP_ELSE => ch.code[ofs] = offset,
+            _ => panic!("cant do jump at this opcode"),
+        }
+    }
+
     pub fn new() -> VM {
         return VM {funcs: vec!(),
             frames:vec!(),
@@ -372,7 +407,6 @@ impl VM {
             match op {
                 OP_RETURN => { 
                     let frame = self.frames.pop().unwrap();
-
                     if self.frames.len() == 0 {
                         //how we return from main function but have full stack
                         //smells like compiler bug
@@ -590,6 +624,32 @@ impl VM {
                         _ => {return RuntimeError;}
                     }
                 }
+                OP_JUMP_IF_FALSE => {
+                    if i + 2 >= self.current_code().len() {
+                        return CompileError;
+                    }
+                    i+=1;
+                    let jump_offset = self.current_code()[i] as usize;
+
+                    // need to check if the prev value is true or not?
+                    let cond = self.stack[self.stack_len() - 1].clone();
+                    // let cond = self.pop_stack(); // THIS CAUSES AN ERROR WAAAAA
+                    if is_falsey(cond) {
+                        // self.current_frame().sip += jump_offset;
+                        i+= jump_offset;
+                        self.pop_stack();
+                    }
+                }
+                OP_JUMP_ELSE => {
+                    if i + 1 >= self.current_code().len() {
+                        return CompileError;
+                    }
+                    i+=1;
+                    let jump_offset = self.current_code()[i] as usize;
+                    i += jump_offset; 
+                    let opc = self.current_code()[i];
+                    let op = Opcode::from_u8(opc);
+                }
                 OP_PRINT => {
                     if self.stack_empty() {
                         return CompileError;
@@ -707,6 +767,16 @@ impl Chunk {
         self.code.push(Opcode::OP_GET_LOCAL as u8);
         self.code.push(ofs);
     }
+    pub fn add_jump_if(&mut self, ofs: u8) -> usize{
+        self.code.push(Opcode::OP_JUMP_IF_FALSE as u8);
+        self.code.push(ofs);
+        return self.code.len() -1;
+    }
+    pub fn add_jump_else(&mut self, ofs: u8) -> usize {
+        self.code.push(Opcode::OP_JUMP_ELSE as u8);
+        self.code.push(ofs);
+        return self.code.len() -1;
+    }
 }
 
 impl fmt::Display for Chunk {
@@ -802,6 +872,14 @@ impl fmt::Display for Chunk {
                     let func_index = self.code[i] as usize;
                     write!(f,"{}",func_index)?;
                 }
+
+                OP_JUMP_IF_FALSE => {
+                    write!(f,"OP_JUMP_IF_FALSE\t")?; 
+                }
+                OP_JUMP_ELSE => {
+                    write!(f,"OP_JUMP_ELSE\t")?;
+                }
+
                 OP_NIL | OP_TRUE | OP_EQUAL | OP_FALSE | OP_ADD | OP_SUBTRACT 
                 | OP_MULTIPLY | OP_DIVIDE | OP_PRINT | OP_NEGATE | OP_NOT 
                 | OP_GREATER | OP_LESS | OP_AND | OP_OR => {

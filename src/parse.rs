@@ -312,24 +312,49 @@ pub struct If {
 }
 
 impl If {
-    //ifStmt         → "if" "(" expression ")" statement
-    //                              ( "else" statement )? ;
     pub fn emit_bc (&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        todo!()
-    }
+        // emit expr:
+        self.cond.emit_bc(ch, vm);
+        // emit the op (then jump)
+        let then = vm.emit_create_if(ch);
+        //emit stmt
+        self.then.emit_bc(ch, vm);
+        // below causes an OP_ADD written but it does NOTHINGAD:SLF:ADSF
+        ch.add_pop();
+        // fix the offset?
+        vm.patch_jump(ch, then);
+        // below fucks up everything:::
+        let or_else = ch.add_jump_else(0xff);
+        ch.add_pop();
+        // println!("tineaadf a{:?}", self.or_else);
+        match &self.or_else {
+            None => {},
+            Some(s) => {
+                println!("wtf");
+                s.emit_bc(ch, vm);
+            }
+        }
+        vm.patch_jump(ch, or_else);
 
+    }
     fn parse(ts: TknSlice) -> Result<Box<If>> {
 
         let left_paren = ts.get(1);
-        // find index of right paranthesis
-        let mut i = 2;
 
         if left_paren.tkn_type == TokenType::LeftParen {
+            // find index of right paranthesis
+            let mut i = 2;
+            let mut paren_cnt = 1;
             // not sure we need the ts size thing here
-            while ts.size() > 2 && ts.get(i).tkn_type != TokenType::RightParen {
+            while ts.size() > 2 && paren_cnt != 0 {
                 i += 1;
+                if ts.get(i).tkn_type == TokenType::RightParen {
+                    paren_cnt -= 1;
+                }
+                if ts.get(i).tkn_type == TokenType::LeftParen {
+                    paren_cnt +=1;
+                }
             }
-            println!("Currently at: {:?}", ts.get(i).tkn_type);
             i+=1;
             let cond = Expr::parse(ts.sub(1,i))?;
             
@@ -344,15 +369,14 @@ impl If {
                 if ts.get(i+1).tkn_type == TokenType::Else { i } else { i + 2}))?;
 
             // if there is more left, parse or_else
-            if ts.get(i).tkn_type == TokenType::Else {
-                let idx = i + 1;
+            if ts.get(i+1).tkn_type == TokenType::Else {
+                let idx = i + 2;
                 i = ts.end();
                 while ts.get(i).tkn_type != TokenType::RightParen {
                     i -= 1;
                 }
 
                 let or_else = Stmt::parse(ts.sub(idx,i))?;
-
 
                 return Ok(Box::new(If { locus: ts.loc(0)
                     , cond: cond
@@ -754,6 +778,9 @@ impl Stmt {
             }
             Stmt::VarDecl(ref v) => { 
                 return v.emit_bc(ch, vm);
+            }
+            Stmt::If(ref i) => {
+                return i.emit_bc(ch, vm);
             }
             _ => { todo!() }
         }
