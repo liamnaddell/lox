@@ -12,11 +12,12 @@ struct TknSlice<'a> {
 //TODO: Implement proper pythonized array indexing
 impl<'a> TknSlice<'a> {
     fn loc(&self, index: usize) -> usize {
+        //TODO: Edge case?
         if self.size() == 0 {
             return self.start;
         }
         assert!(index < self.size());
-        return self.start + index;
+        return self.get(index).locus;
     }
     //str is a reference to stack or heap allocated string data
     //String is a heap-allocated string.
@@ -144,17 +145,22 @@ pub struct FnDecl {
 
 impl FnDecl {
     pub fn emit_bc(&self, _ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        //TODO: Handle function arguments once we have globals / locals.
         let name = self.name.clone();
-        //TODO: Properly handle arity
-        assert!(self.args.len() == 0);
-        //basically "for arg in args, emit OP_GET_GLOBAL then OP_SET_GLOBAL" with a mapping of name -> slot
         let mut sub_cnk = bc::Chunk::new();
+        vm.ct_push_scope();
+        for arg in &self.args {
+            //we don't actually SET the variable, just DECLARE it since it's on the STACK
+            //vm.emit_create_var(&mut sub_cnk,&arg);
+            let id = vm.ct_get_id_of_var(&arg);
+            //lmao
+            let _ofs = vm.ct_add_decl(id);
+        }
         self.fn_def.emit_bc(&mut sub_cnk,vm);
         sub_cnk.add_return();
 
         let func = bc::Function { chunk:sub_cnk, arity: self.args.len()};
 
+        vm.ct_pop_scope();
         vm.ct_add_function(name,func);
     }
     fn parse(ts: TknSlice) -> Result<Box<FnDecl>> {
@@ -183,10 +189,15 @@ impl FnDecl {
         let mut i = 3;
         let mut paren = false;
         while i < ts.end() {
-            let tkn = ts.get(i);
+            let mut tkn = ts.get(i);
 
-            if let TokenType::Identifier(ref i) = tkn.tkn_type {
-                args.push(i.clone());
+            if let TokenType::Identifier(ref id) = tkn.tkn_type {
+                args.push(id.clone());
+                if i + 1 >= ts.end() {
+                    return Err(new_err(tkn.locus,"Abrupt end of program :/"));
+                }
+                i+=1;
+                tkn = ts.get(i)
             }
             if tkn.tkn_type == TokenType::RightParen {
                 paren = true;
@@ -194,7 +205,7 @@ impl FnDecl {
             } else if tkn.tkn_type == TokenType::Comma {
                 i+=1;
             } else {
-                return Err(new_err(ts.loc(i),"strange token in argument"));
+                return Err(new_err(tkn.locus,"strange token in argument"));
             }
         }
         if !paren {
@@ -453,10 +464,23 @@ pub struct Call {
 
 impl Call {
     pub fn emit_bc(&self, ch: &mut bc::Chunk,vm: &mut bc::VM) {
-        //TODO: Argument lists
-        assert!(self.args.len() == 0);
         let findex = vm.ct_get_function_index(&self.fn_name);
+        let Some(findex) = findex else {
+            panic!("ya that function doesnt exist buddy");
+        };
+        let funct = &vm.funcs[findex];
+        if self.args.len() != funct.arity {
+            panic!("Arity mismatch :/, expected {} args got {}  now i die", funct.arity,self.args.len());
+
+        }
+        for arg in &self.args {
+            arg.emit_bc(ch,vm);
+        }
         ch.add_call(findex);
+        for _ in 0..self.args.len() {
+            //we gotta pop these bad boys off the stack once we are done.
+            ch.add_pop();
+        }
     }
 }
 
@@ -576,20 +600,39 @@ impl Expr {
         if let TokenType::Identifier(ref fnname) = ts.get(0).tkn_type {
             //TODO: Proper parsing!!
             //this is actually a call expr
-            let arglist = vec!();
-            /*
-            if b1 && b2 && b3 {
-                for i in 2..ts.end() {
-                    let tkn = ts.get(i);
-                    //TODO: These need to be expressions
-                    if let TokenType::Identifier(ref ident) = tkn {
-                        arglist.push(ident.clone());
-                    } else {
-                        return Err(new_err(ts.loc(i), "Argument to function call is not an identifier"));
+            let mut arglist = vec!();
+            //「T H I S  S U C K S  I  H A T E  I T」
+            // basically the algorithm is that we have a ,-deliminated list of exprs, but exprs can
+            // have subfunction calls with parenthesis, which makes our life very annoying, so we
+            // count parenthesis and only split on ,'s with "scope" zero.
+            let mut i = 2;
+            let mut scope = 0;
+            let mut prison_begin = i;
+            //skip the last )
+            while i < ts.size()-1 {
+                let tkn = ts.get(i);
+                if tkn.tkn_type == TokenType::LeftParen {
+                    scope +=1;
+                } else if tkn.tkn_type == TokenType::RightParen {
+                    if scope == 1 {
+                        return Err(new_err(tkn.locus,"too many right paren"));
                     }
+                    scope -= 1;
                 }
+                if tkn.tkn_type == TokenType::Comma && scope == 0 {
+                    //parse sub-expr
+                    let expr_begin = prison_begin;
+                    let expr_end = i;
+                    let tse = ts.sub(expr_begin,expr_end);
+                    arglist.push(Expr::parse(tse)?);
+                    prison_begin = i + 1;
+
+                }
+                i += 1;
             }
-            */
+            //grab that last dude
+            let tse = ts.sub(prison_begin,ts.end());
+            arglist.push(Expr::parse(tse)?);
             return Ok(Box::new(Expr::Call(Call { locus:ts.loc(0),fn_name:fnname.clone(),args:arglist})));
         }}
 

@@ -225,8 +225,8 @@ impl VM {
         self.ct_global_id_to_index.insert(id, ind);
     }
 
-    pub fn ct_get_function_index(&mut self, name: &str) -> usize {
-        //TODO: Assert that its a function
+    pub fn ct_get_function_index(&mut self, name: &str) -> Option<usize> {
+        //TODO: THIS FUNCTION STINKS!!!!!!!
         let id = self.ct_get_id_of_var(name);
         let index = self.ct_get_global_index(id);
         return index;
@@ -240,7 +240,7 @@ impl VM {
             return;
         };
         if decl.scope == 0 {
-            let index = self.ct_get_global_index(id);
+            let index = self.ct_get_global_index(id).expect("ICE");
             ch.add_set_global(index);
             //exprs must return something.
             ch.add_get_global(index);
@@ -251,9 +251,9 @@ impl VM {
     }
 
 
-    pub fn ct_get_global_index(&self, id:u64) -> usize {
+    pub fn ct_get_global_index(&self, id:u64) -> Option<usize> {
         let v = self.ct_global_id_to_index.get(&id);
-        return *v.expect("ICE: Id mismatch");
+        return v.copied();
     }
 
     pub fn emit_create_var(&mut self, ch: &mut Chunk, var_name: &str) {
@@ -277,7 +277,7 @@ impl VM {
         let id = self.ct_get_id_of_var(var_name);
         let (ofs,decl) = self.ct_get_stack_offset_of_decl(id).expect("ICE: reference to id which does not exist");
         if decl.scope == 0 {
-            let index = self.ct_get_global_index(id);
+            let index = self.ct_get_global_index(id).expect("ICE");
             ch.add_get_global(index);
             return;
         }
@@ -380,6 +380,7 @@ impl VM {
                         return OK;
                     }
                     i=frame.sip;
+                    continue;
                 }
                 OP_POP => {
                     let _ = self.pop_stack();
