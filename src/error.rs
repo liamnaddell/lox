@@ -19,13 +19,15 @@ impl CompileError {
         return CompileError::new(locus,msg.to_string());
     }
     pub fn emit(&self) {
-        //TODO: FIX GARBAGE CODE
+        //And now, a kind message for the people reading my code:
+        //  I HOPE IT HURTS!!!!!!!!!!!!
         println!("\x1b[31;1mERROR:\x1b[0m {}",self.msg);
         let data: &[u8] = SOURCE.get().unwrap().as_ref();
         let pad = "  | ";
-        let mut begin = self.locus;
-        let mut end = begin;
+        let mut begin = self.locus - 1;
+        let mut end = self.locus + 1;
         let mut locus = self.locus;
+        //idk
         while begin != 0 {
             if data[begin] == b'\n' {
                 break;
@@ -38,6 +40,7 @@ impl CompileError {
 
         while end != data.len() {
             if data[end] == b'\n' {
+                end -=1;
                 break;
             }
             end+=1;
