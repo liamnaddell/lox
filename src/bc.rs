@@ -124,6 +124,8 @@ struct Frame {
     sip: usize,
     //index into vm.funcs, i.e. which function 
     func_index: usize,
+    //size of the stack before the function call.
+    sp: usize,
 }
 
 #[derive(Clone,Copy)]
@@ -382,7 +384,7 @@ impl VM {
         use Opcode::*;
         let mut i = 0;
         //start at the main function
-        self.frames.push(Frame { sip: 0, func_index:self.funcs.len()-1 });
+        self.frames.push(Frame { sip: 0, func_index:self.funcs.len()-1, sp: 0 });
         let mut reset_ip = false;
         let mut skip_increment = false;
         loop {
@@ -395,13 +397,21 @@ impl VM {
             match op {
                 OP_RETURN => { 
                     let frame = self.frames.pop().unwrap();
+
                     if self.frames.len() == 0 {
                         //how we return from main function but have full stack
                         //smells like compiler bug
                         assert!(self.stack_empty());
                         return OK;
                     }
-                    i=frame.sip;
+
+                    //somehow we deleted local variables before deleting them at return??
+                    assert!(self.stack_len() >= frame.sp);
+                    while self.stack_len() != frame.sp { self.pop_stack(); };
+
+                    i=frame.sip+1;
+                    //TODO(return): Add a proper return value here...
+                    self.push_stack(Value::Nil);
                     continue;
                 }
                 OP_POP => {
@@ -509,10 +519,10 @@ impl VM {
                     if self.stack_len() < arity {
                         return CompileError;
                     }
-                    i += arity;
                     //create a new frame, return when complete
-                    self.frames.push(Frame { sip:i,func_index:findex});
+                    self.frames.push(Frame { sip:i,func_index:findex, sp: self.stack_len()});
                     reset_ip = true;
+
                 }
                 OP_ADD | OP_SUBTRACT | OP_MULTIPLY | OP_DIVIDE => {
                     let op_fn = self.get_fn(op);
@@ -850,7 +860,6 @@ impl fmt::Display for Chunk {
                     write!(f,"{}",func_index)?;
                 }
                 OP_CALL => { 
-                    //TODO: Fix this when we have to deal with arguments...
                     write!(f,"OP_CALL\t")?;
                     if i + 1 >= self.code.len() {
                         write!(f," WTFEOF")?;

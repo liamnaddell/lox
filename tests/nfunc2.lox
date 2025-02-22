@@ -1,0 +1,8 @@
+fun a() { 
+    fun b(m) { print m; };
+    b("hi");
+    b(2);
+};
+a();
+a();
+
