@@ -133,6 +133,15 @@ impl BinOp {
         return cmp::min(BinOp::Minus,BinOp::Or);
     }
 }
+#[derive(Debug)]
+pub struct ClassDecl;
+impl ClassDecl {
+    pub fn emit_bc(&self, _ch: &mut bc::Chunk, _vm: &mut bc::VM) {
+        todo!();
+    }
+}
+#[derive(Debug)]
+pub struct For;
 
 #[derive(Debug)]
 pub struct FnDecl {
@@ -227,15 +236,14 @@ impl FnDecl {
 
 #[derive(Debug)]
 pub struct Block {
-    #[allow(dead_code)]
     pub locus: usize,
-    pub stmts: Vec<Box<Stmt>>,
+    pub decls: Vec<Box<Decl>>,
 }
 
 impl Block {
     pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
         vm.ct_push_scope();
-        for stmt in &self.stmts {
+        for stmt in &self.decls {
             stmt.emit_bc(ch,vm);
         }
         vm.ct_pop_scope();
@@ -245,20 +253,31 @@ impl Block {
         //<stmt>;
         //<stmt>;
         //...
-        let mut b = Block { locus: ts.loc(0), stmts:vec!()};
+        let mut b = Block { locus: ts.loc(0), decls:vec!()};
         let mut loc_old = 0;
         let mut loc = 0;
 
+        let mut brace_cnt = 0;
+        //NOTE: TODO: We have a lot of this repetitive and spammy brace counting code.
+        // Maybe a better engineer can see how to move these into a single function.
         while loc != ts.size() {
             let t = ts.get(loc); 
-            if t.tkn_type == TokenType::Semicolon {
-                let ts2 = ts.sub(loc_old,loc);
-                let stmt = Stmt::parse(ts2)?;
-                b.stmts.push(stmt);
+            if t.tkn_type == TokenType::LeftBrace { brace_cnt += 1; }
+            if t.tkn_type == TokenType::RightBrace { brace_cnt -= 1; }
+            if t.tkn_type == TokenType::Semicolon && brace_cnt == 0 {
+                /* include the semicolon */
+                let ts2 = ts.sub(loc_old,loc+1);
+                let stmt = Decl::parse(ts2)?;
+                b.decls.push(stmt);
                 //skip semicolon
                 loc_old = loc+1;
             }
             loc += 1;
+        }
+        //TODO: This should be an assert?
+        //How did we get this far with unclosed left brace ://
+        if brace_cnt != 0 {
+            return Err(new_err(ts.loc(ts.end()),"Unclosed left brace dingus"));
         }
 
         return Ok(Box::new(b));
@@ -710,9 +729,11 @@ impl Expr {
                 }
                 i += 1;
             }
-            //grab that last dude
-            let tse = ts.sub(prison_begin,ts.end());
-            arglist.push(Expr::parse(tse)?);
+            if prison_begin < ts.end() {
+                //grab that last dude (˶˃ᵕ˂˶).ᐟ.ᐟ
+                let tse = ts.sub(prison_begin,ts.end());
+                arglist.push(Expr::parse(tse)?);
+            }
             return Ok(Box::new(Expr::Call(Call { locus:ts.loc(0),fn_name:fnname.clone(),args:arglist})));
         }}
 
@@ -789,18 +810,19 @@ impl Expr {
 pub struct Return {
     #[allow(dead_code)]
     pub locus: usize,
+    //TODO(rval): Add return values
 }
 
 #[derive(Debug)]
 pub enum Stmt {
     Print(Print),
     If(If),
-    #[allow(dead_code)]
     While(While),
     Expr(Expr),
     #[allow(dead_code)]
+    For(For),
     Return(Return),
-    VarDecl(VarDecl), 
+    Block(Block), 
 }
 
 impl Stmt {
@@ -815,11 +837,11 @@ impl Stmt {
                 //Expressions return a value on the stack, we discard this value.
                 ch.add_pop();
             }
-            Stmt::VarDecl(ref v) => { 
-                return v.emit_bc(ch, vm);
-            }
             Stmt::If(ref i) => {
                 return i.emit_bc(ch, vm);
+            }
+            Stmt::Block(ref b) => {
+                return b.emit_bc(ch, vm);
             }
             _ => { todo!() }
         }
@@ -836,10 +858,6 @@ impl Stmt {
                 let sub = Expr::parse(ts.sub(1,0))?;
                 return Ok(Box::new(Stmt::Print(Print{locus:ts.loc(0),to_print:sub}))); 
             },
-            TokenType::Var => {
-                return Ok(Box::new(Stmt::VarDecl(*VarDecl::parse(ts.sub(0,0))?)));
-            },
-
             TokenType::If => {
                 return Ok(Box::new(Stmt::If(*If::parse(ts.sub(0,0))?))); 
             },
@@ -860,9 +878,10 @@ impl Stmt {
 
 #[derive(Debug)]
 pub enum Decl {
+    ClassDecl(ClassDecl),
     FnDecl(FnDecl), 
+    VarDecl(VarDecl), 
     Stmt(Stmt), 
-    Block(Block), 
 }
 
 impl Decl {
@@ -871,10 +890,13 @@ impl Decl {
             Decl::Stmt(ref s) => {
                 s.emit_bc(ch,vm);
             }
-            Decl::Block(ref b) => {
+            Decl::VarDecl(ref b) => {
                 return b.emit_bc(ch,vm);
             }
             Decl::FnDecl(ref fnd) => {
+                return fnd.emit_bc(ch,vm);
+            }
+            Decl::ClassDecl(ref fnd) => {
                 return fnd.emit_bc(ch,vm);
             }
         }
@@ -887,10 +909,12 @@ impl Decl {
         let first = ts.get(0);
         let last = ts.get(ts.end());
 
+        /*
         if first.tkn_type == TokenType::LeftBrace && last.tkn_type == TokenType::RightBrace {
             //TODO: ugl line
-            return Ok(Box::new(Decl::Block(*Block::parse(ts.sub(1,0))?)));
+            return Ok(Box::new(Decl::Stmt(*Stmt::parse(ts.sub(1,0))?)));
         }
+        */
 
         if last.tkn_type != TokenType::Semicolon {
             return Err(new_err(ts.loc(ts.end()),"forgot semicolon?"));
@@ -899,6 +923,9 @@ impl Decl {
         if first.tkn_type == TokenType::Fun {
             //strip semicolon TODO: Uggo line
             return Ok(Box::new(Decl::FnDecl(*FnDecl::parse(ts.sub(0,ts.end()))?)));
+        }
+        if first.tkn_type == TokenType::Var {
+            return Ok(Box::new(Decl::VarDecl(*VarDecl::parse(ts.sub(0,ts.end()))?)));
         }
 
 

@@ -2,8 +2,6 @@ mod token;
 mod parse;
 mod error;
 mod bc;
-mod eval;
-
 use token::*;
 use parse::*;
 use bc::*;
@@ -11,7 +9,6 @@ use std::fs::File;
 use std::io::*;
 use std::env;
 use std::process::ExitCode;
-use crate::eval::*;
 
 struct Args {
     bc: bool,
@@ -25,6 +22,7 @@ fn argparse(args: &Vec<String>) -> Option<Args> {
     };
 
     let mut i = 1;
+    //technically dead code now but here for future use.
     while i < args.len() {
         if args[i] == "-e" {
             arg.bc = false;
@@ -77,18 +75,11 @@ fn compiler_main() -> usize {
     let ast = ast.unwrap();
     println!("AST: {:?}",ast);
 
-    if arg.bc {
-        let mut vm = VM::new();
-        vm.compile(ast.as_ref());
-        vm.display_bc();
+    let mut vm = VM::new();
+    vm.compile(ast.as_ref());
+    vm.display_bc();
 
-        let res = vm.interpret();
-        println!("{:?}",res);
-        return (res == InterpretResult::OK) as usize;
-    } else {
-        eval(ast);
-    }
-
-    return 0;
-
+    let res = vm.interpret();
+    println!("{:?}",res);
+    return (res == InterpretResult::OK) as usize;
 }
