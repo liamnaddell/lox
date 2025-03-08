@@ -150,6 +150,8 @@ pub struct FnDecl {
     pub name: String,
     pub args: Vec<String>,
     pub fn_def: Box<Block>,
+    /* Variables accessed in enclosing scope, stores variable IDs */
+    pub upvalues: Vec<u64>,
 }
 
 impl FnDecl {
@@ -167,6 +169,13 @@ impl FnDecl {
         self.fn_def.emit_bc(&mut sub_cnk,vm);
         sub_cnk.add_return();
 
+        let mut bc_upvs = vec!();
+        for upv in &self.upvalues {
+            let Some(scope,decl) = self.ct_stack.get_stack_offset_of_decl_in_enclosing_scope(upv) else {
+                    unreachable!();
+            }
+            self.bc_upvs.push(Upvalue { scope: scope, 
+        }
         let func = bc::Function { chunk:sub_cnk, arity: self.args.len()};
 
         vm.ct_pop_scope();

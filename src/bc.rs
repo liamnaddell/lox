@@ -36,6 +36,8 @@ enum Opcode {
     OP_GET_GLOBAL,
     OP_SET_LOCAL,
     OP_GET_LOCAL,
+    OP_GET_UPVALUE,
+    OP_SET_UPVALUE,
 
     //MAKE SURE THIS IS THE LAST ONE!!!!!
     /* NEVER ADD CODE HERE */
@@ -106,15 +108,33 @@ fn is_falsey(v: &Value) -> bool {
     return false;
 }
 
+#[derive(Clone,Copy,Debug)]
+pub struct Upvalue {
+    scope: u8,
+    ofs: u8,
+}
+
+impl fmt::Display for Function {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f,"(scope:{},ofs:{}),"self.scope,self.ofs)
+    }
+}
+
 pub struct Function {
     //index into vm.funcs
     pub chunk: Chunk,
     //arity of the function.
     pub arity: usize,
+    //Upvalues -- variables accessed in enclosing scope
+    pub upvalues: Vec<Upvalue>,
 }
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f,"arity:{}> function:\n{}",self.arity,self.chunk)
+        write!(f,"arity:{}> function:\n{}\nupvalues: [",self.arity,self.chunk)?;
+        for upv in &self.upvalues {
+            write!(f,"{}",upv)?;
+        }
+        write!(f,"]\n")
     }
 }
 
@@ -134,6 +154,7 @@ struct Decl {
     decl_id: u64,
     scope: u8,
 }
+//TODO: We are only allowed to have 256 local variables in AN ENTIRE PROGRAM!!!!
 struct CTStack {
     decls: [Decl;u8::MAX as usize],
     //lexical scope depth
@@ -169,14 +190,34 @@ impl CTStack {
         self.tip += 1;
         return ret;
     }
-    fn get_stack_offset_of_decl(&self, d:u64) -> Option<(u8,Decl)> {
-        let end = self.tip as usize;
-        for i in (0..end).rev() {
+    //probably should not call this...
+    fn get_stack_offset_in_range(&self, start: usize, end:usize,d:u64) -> Option<(u8,Decl)> {
+        for i in (start..end).rev() {
             if self.decls[i].decl_id == d {
                 return Some((i as u8,self.decls[i]));
             }
         }
         return None;
+    }
+    //used for resolving upvalues
+    fn get_stack_offset_of_decl_in_enclosing_scope(&self, d:u64) -> Option<(u8,Decl)> {
+        let mut end = self.tip as usize;
+        let start = 0;
+        let cur_scope = self.current_depth;
+        //ah yes enclose in -1 scope... very intelligent
+        assert!(cur_scope != 0);
+        let tgt_scope = cur_scope - 1;
+        while end > start && cur_scope != tgt_scope { 
+            end -= 1; 
+            cur_scope = self.decls[self.end].scope;
+        }
+        assert!(end != start);
+        return get_stack_offset_in_range(start,end,d);
+    }
+    fn get_stack_offset_of_decl(&self, d:u64) -> Option<(u8,Decl)> {
+        let end = self.tip as usize;
+        let start = 0;
+        return get_stack_offset_in_range(start,end,d);
     }
 }
 
@@ -476,6 +517,31 @@ impl VM {
                     assert!(loc_var_no < self.stack.len());
                     let v = self.stack[loc_var_no].clone();
                     self.stack.push(v);
+                }
+                OP_GET_UPVALUE | OP_SET_UPVALUE => {
+                    if i + 1 >= self.current_code().len() {
+                        return CompileError;
+                    }
+                    i += 1;
+                    let upv_obj = {
+                        let upv_no = self.current_code()[i] as usize;
+                        let cur_frame = &self.frames.last().unwrap();
+                        let cur_func = &vm.funcs[cur_frame.func_index];
+                        assert!(upv_no < cur_func.upvalues.len());
+                        cur_func.upvalues[upv_no]
+                    };
+
+                    //Whew... that was exhausting...
+                    let upv_frame = &self.frames[upv_obj.scope];
+                    let loc_var_no = upv_frame.sp + upv_obj.ofs;
+
+                    if op == OP_GET_UPVALUE {
+                        let val = self.stack[loc_var_no].clone();
+                        self.stack.push(val);
+                    } else {
+                        let obj = self.stack.pop();
+                        self.stack[loc_var_no] = obj;
+                    }
                 }
                 OP_GET_GLOBAL => {
                     if i + 1 >= self.current_code().len() {
@@ -786,12 +852,6 @@ impl fmt::Display for Chunk {
             write!(f,"{:b}\t",opc)?;
             let op = Opcode::from_u8(opc);
             match op {
-                OP_RETURN => { 
-                    write!(f,"OP_RETURN")?;
-                }
-                OP_POP => {
-                    write!(f,"OP_POP\t")?;
-                }
                 OP_CONSTANT => { 
                     write!(f,"OP_CONSTANT\t")?;
                     if i + 1 >= self.code.len() {
@@ -807,9 +867,11 @@ impl fmt::Display for Chunk {
                     let v = self.constants[const_index].clone();
                     write!(f,"{}",v)?;
                 }
-
-                OP_SET_GLOBAL => {
-                    write!(f,"OP_SET_GLOBAL\t")?;
+                OP_GET_GLOBAL | OP_GET_LOCAL | OP_SET_LOCAL 
+                    | OP_GET_UPVALUE | OP_SET_UPVALUE
+                    | OP_FUNC | OP_CALL | OP_JUMP_IF_FALSE 
+                    | OP_JUMP | OP_SET_GLOBAL | OP_GET_GLOBAL => {
+                    write!(f,"{}\t",op)?;
                     if i + 1 >= self.code.len() {
                         write!(f," WTFEOF")?;
                     }
@@ -819,83 +881,13 @@ impl fmt::Display for Chunk {
                     write!(f, "{}", global_index)?; 
                 }
                 
-                OP_GET_GLOBAL => {
-                    write!(f,"OP_GET_GLOBAL\t")?;
-                    if i + 1 >= self.code.len() {
-                        write!(f," WTFEOF")?;
-                    }
-                    i+=1;
-                    let global_index = self.code[i] as usize;
-
-                    write!(f,"{}",global_index)?; 
-                } 
-                OP_GET_LOCAL => {
-                    write!(f,"OP_GET_LOCAL\t")?;
-                    if i + 1 >= self.code.len() {
-                        write!(f," WTFEOF")?;
-                    }
-                    i+=1;
-                    let index = self.code[i] as usize;
-
-                    write!(f,"{}",index)?; 
-                } 
-                OP_SET_LOCAL => {
-                    write!(f,"OP_SET_LOCAL\t")?;
-                    if i + 1 >= self.code.len() {
-                        write!(f," WTFEOF")?;
-                    }
-                    i+=1;
-                    let index = self.code[i] as usize;
-
-                    write!(f,"{}",index)?; 
-                } 
-                OP_FUNC => { 
-                    write!(f,"OP_FUNC\t")?;
-                    if i + 1 >= self.code.len() {
-                        write!(f," WTFEOF")?;
-                    }
-                    i+=1;
-                    let func_index = self.code[i] as usize;
-
-                    write!(f,"{}",func_index)?;
-                }
-                OP_CALL => { 
-                    write!(f,"OP_CALL\t")?;
-                    if i + 1 >= self.code.len() {
-                        write!(f," WTFEOF")?;
-                    }
-                    i+=1;
-                    let func_index = self.code[i] as usize;
-                    write!(f,"{}",func_index)?;
-                }
-
-                OP_JUMP_IF_FALSE => {
-                    write!(f,"OP_JUMP_IF_FALSE\t")?;
-                    if i + 1 >= self.code.len() {
-                        write!(f," WTFEOF")?;
-                    }
-                    i+=1;
-                    let index = self.code[i] as usize;
-
-                    write!(f,"{}",index)?;  
-                }
-                OP_JUMP => {
-                    write!(f,"OP_JUMP\t")?;
-                    if i + 1 >= self.code.len() {
-                        write!(f," WTFEOF")?;
-                    }
-                    i+=1;
-                    let index = self.code[i] as usize;
-
-                    write!(f,"{}",index)?; 
-                } 
 
                 OP_NIL | OP_TRUE | OP_EQUAL | OP_FALSE | OP_ADD | OP_SUBTRACT 
                 | OP_MULTIPLY | OP_DIVIDE | OP_PRINT | OP_NEGATE | OP_NOT 
-                | OP_GREATER | OP_LESS | OP_AND | OP_OR => {
-                    write!(f,"{:?}",op)?;
+                | OP_GREATER | OP_LESS | OP_AND | OP_OR | OP_RETURN | OP_POP => {
+                    write!(f,"{}",op)?;
                 }
-                OP_NONE => {
+                _ => {
                     write!(f,"Invalid opcode!!!")?;
                 }
             }
