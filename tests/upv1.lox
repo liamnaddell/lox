@@ -3,6 +3,7 @@ fun env() {
     fun clos() {
         print a;
     };
+    clos();
 };
 
 env();

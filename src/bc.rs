@@ -110,6 +110,8 @@ fn is_falsey(v: &Value) -> bool {
 
 #[derive(Clone,Copy,Debug)]
 pub struct Upvalue {
+    //scope offset from the current frame.
+    //so subtract current_frame - scope to get the location.
     scope: u8,
     ofs: u8,
 }
@@ -137,6 +139,8 @@ impl fmt::Display for Function {
         write!(f,"]\n")
     }
 }
+//TODO: Compilation related code should go in it's own file...
+//so emit_bc and any ct_ function.
 
 #[derive(Clone,Copy)]
 struct Frame {
@@ -152,55 +156,55 @@ struct Frame {
 struct Decl {
     //friendly reminder: no decl may have id 0
     decl_id: u64,
-    scope: u8,
 }
-//TODO: We are only allowed to have 256 local variables in AN ENTIRE PROGRAM!!!!
-struct CTStack {
-    decls: [Decl;u8::MAX as usize],
-    //lexical scope depth
-    current_depth: u8,
+
+struct CTStackFrame {
+    decls: Vec<Decl>,
     tip: u8,
 }
 
-impl CTStack {
-    fn new() -> CTStack {
-        return CTStack {decls: [Decl {decl_id:0,scope:0};255], tip: 0, current_depth: 0};
+impl CTStackFrame {
+    fn new() -> CTStackFrame {
+        return CTStackFrame {decls: [Decl {decl_id:0,scope:0};255], tip: 0};
     }
-    fn push_frame(&mut self) {
-        self.current_depth += 1;
+}
+
+struct CTStack {
+    //note: we only have a frame if we find ourself inside a function.
+    frames: Vec<CTStackFrame>,
+}
+
+impl CTStack {
+    fn new() -> CTStack { CTStack { frames: vec!() } }
+    fn push_frame(&mut self) { self.frames.push(CTStackFrame::new()); }
+
+    fn last_frame(&mut self) -> &mut CTStackFrame { 
+        assert!(self.frames.len() != 0);
+        return &mut self.frames[self.frames.len() - 1];
     }
     fn pop_frame(&mut self) {
-        assert!(self.current_depth != 0);
-        for i in (0..(self.tip as usize)).rev() {
-            assert!(self.decls[i].decl_id != 0);
-            if self.decls[i].scope != self.current_depth {
-                break;
-            }
-            self.decls[i].decl_id = 0;
-            assert!(self.tip != 0);
-            self.tip -= 1;
-        }
-        self.current_depth -= 1;
+        assert!(self.frames.len() != 0);
+        self.frames.pop();
     }
     fn add_decl(&mut self, d:u64) -> u8 {
-        assert!(self.decls[self.tip as usize].decl_id == 0);
-        self.decls[self.tip as usize].decl_id = d;
-        self.decls[self.tip as usize].scope = self.current_depth;
-        let ret = self.tip;
-        self.tip += 1;
+        let f = self.last_frame();
+        assert!(f.decls.len() < 256);
+        f.decls.push(d);
         return ret;
     }
     //probably should not call this...
-    fn get_stack_offset_in_range(&self, start: usize, end:usize,d:u64) -> Option<(u8,Decl)> {
+    //returns how deep in the call stack we are
+    fn get_stack_offset_in_range(&self, start: usize, end:usize,d:u64) -> Option<(usize,u8)> {
         for i in (start..end).rev() {
-            if self.decls[i].decl_id == d {
-                return Some((i as u8,self.decls[i]));
+            let f = &mut self.frames[i];
+            if let Some(d) = f.get_decl(d) {
+                return Some((i,d));
             }
         }
         return None;
     }
     //used for resolving upvalues
-    fn get_stack_offset_of_decl_in_enclosing_scope(&self, d:u64) -> Option<(u8,Decl)> {
+    fn get_stack_offset_of_decl_in_enclosing_scope(&self, d:u64) -> Option<(usize,u8)> {
         let mut end = self.tip as usize;
         let start = 0;
         let cur_scope = self.current_depth;
@@ -214,10 +218,11 @@ impl CTStack {
         assert!(end != start);
         return get_stack_offset_in_range(start,end,d);
     }
-    fn get_stack_offset_of_decl(&self, d:u64) -> Option<(u8,Decl)> {
+    //Returns the offset into the current frame of the decl
+    fn get_stack_offset_of_decl(&self, d:u64) -> Option<u8> {
         let end = self.tip as usize;
         let start = 0;
-        return get_stack_offset_in_range(start,end,d);
+        let get_stack_offset_in_range(start,end,d);
     }
 }
 
@@ -247,7 +252,8 @@ impl VM {
     pub fn ct_add_decl(&mut self, d:u64) -> u8 {
         return self.ct_stack.add_decl(d);
     }
-    fn ct_get_stack_offset_of_decl(&self, d:u64) -> Option<(u8,Decl)> {
+    //returns which frame it was found in, and what offset into that frame.
+    fn ct_get_stack_offset_of_decl(&self, d:u64) -> Option<(usize,u8)> {
         return self.ct_stack.get_stack_offset_of_decl(d);
     }
     pub fn ct_get_id_of_var(&mut self, name: &str) -> u64 {

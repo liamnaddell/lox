@@ -1,0 +1,17 @@
+i=0;
+fun a() {
+    if (i > 0) {
+        return;
+    }
+    i = i + 1;
+    fun b() {
+        let aa = a;
+        print aa;
+        return aa;
+    }
+    let bb = a;
+    bb = b;
+    return bb;
+};
+
+a();

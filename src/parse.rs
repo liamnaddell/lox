@@ -171,12 +171,13 @@ impl FnDecl {
 
         let mut bc_upvs = vec!();
         for upv in &self.upvalues {
-            let Some(scope,decl) = self.ct_stack.get_stack_offset_of_decl_in_enclosing_scope(upv) else {
+            let Some(frameno,ofs) =
+                self.ct_stack.get_stack_offset_of_decl_in_enclosing_scope(upv) else {
                     unreachable!();
             }
-            self.bc_upvs.push(Upvalue { scope: scope, 
+            self.bc_upvs.push(Upvalue { scope: decl.scope, decl.ofs });
         }
-        let func = bc::Function { chunk:sub_cnk, arity: self.args.len()};
+        let func = bc::Function { chunk:sub_cnk, arity: self.args.len(), upvalues:bc_upvs};
 
         vm.ct_pop_scope();
         vm.ct_add_function(name,func);
