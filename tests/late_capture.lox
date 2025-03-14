@@ -1,0 +1,18 @@
+func a() {
+    var i = 0;
+    # Tag: this references i
+    fun b() {
+        # upvalue: frame -1, offset 0
+        i = i + 1;
+        print i;
+    }
+    # Wait... we marked i as an upvalue reference, and we return a function b, so lets grab that upvalue now...
+    return b;
+}
+
+func c() {
+    return a();
+}
+
+var b = c();
+b();
