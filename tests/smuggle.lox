@@ -1,0 +1,15 @@
+func b() {
+    #Declared: scope 1, offset 0
+    var i = 0;
+    fun a() {
+        if (i < 10) {
+            # References scope -1, offset 0
+            i = i + 1;
+            b();
+        } else {
+            return;
+        }
+    };
+    a();
+};
+b();
