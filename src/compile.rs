@@ -89,9 +89,9 @@ impl CTStack {
 }
 
 pub struct CompilePass {
-    cnks: Vec<Chunk>,
-    funcs: Vec<Function>,
-    globals: Vec<Value>,
+    pub cnks: Vec<Chunk>,
+    pub funcs: Vec<Function>,
+    pub globals: Vec<Value>,
     /** 
      * The chunk we are compiling code into,
      * changes when we start compiling a different function
@@ -112,14 +112,16 @@ macro_rules! current_chunk {
 }
 impl CompilePass {
     pub fn new() -> Self {
+        let cc = Chunk::new();
+        let func = Function { chunk: 0, arity: 0 };
         return CompilePass {
-            cnks: vec!(),
+            cnks: vec!(cc),
             ct_name_to_id:HashMap::new(),
             ct_global_id_to_index: HashMap::new(),
             globals:vec!(),
             ct_stack: CTStack::new(),
             current_chunk:0,
-            funcs: vec!(),
+            funcs: vec!(func),
             next_id:1
         }
     }
@@ -157,7 +159,8 @@ impl CompilePass {
     pub fn display_bc(&self) {
         for i in 0..self.funcs.len() {
             let func = &self.funcs[i];
-            println!("<func #{} {}",i,func);
+            let ch = &self.cnks[func.chunk];
+            println!("<func #{} {} {}",i,func,ch);
         }
     }
     pub fn ct_push_scope(&mut self) {

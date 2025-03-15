@@ -83,7 +83,7 @@ fn compiler_main() -> usize {
     bc_comp.visit_program(&ast);
     bc_comp.display_bc();
 
-    let mut vm = VM::new();
+    let mut vm = VM::new(bc_comp);
     let res = vm.interpret();
     println!("{:?}",res);
     return (res == InterpretResult::OK) as usize;

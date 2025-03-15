@@ -110,7 +110,7 @@ pub struct Function {
 }
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f,"arity:{}> function:\n{}",self.arity,self.chunk)
+        write!(f,"arity:{}>\n",self.arity)
     }
 }
 
@@ -134,14 +134,14 @@ pub struct VM {
     pub globals: Vec<Value>,
 }
 
+use crate::compile::CompilePass;
 impl VM {
-
-    pub fn new() -> VM {
-        return VM {funcs: vec!(),
-            chunks:vec!(),
+    pub fn new(cp: CompilePass) -> VM {
+        return VM {funcs: cp.funcs,
+            chunks:cp.cnks,
             frames:vec!(),
             stack:vec!(),
-            globals: vec!(),
+            globals: cp.globals,
         };
     }
     pub fn stack_len(&self) -> usize {
