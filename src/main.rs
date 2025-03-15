@@ -80,10 +80,10 @@ fn compiler_main() -> usize {
     let mut bc_comp = compile::CompilePass::new();
     //let mut vm = VM::new();
     //vm.compile(ast.as_ref());
-    bc_comp.visit_program(ast);
+    bc_comp.visit_program(&ast);
     bc_comp.display_bc();
 
-    let vm = VM::new();
+    let mut vm = VM::new();
     let res = vm.interpret();
     println!("{:?}",res);
     return (res == InterpretResult::OK) as usize;

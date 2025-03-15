@@ -1,6 +1,7 @@
 use crate::parse::*;
 use crate::bc::*;
 use std::collections::HashMap;
+use crate::parse;
 
 /**
  * Couldn't really come up with a better name...
@@ -13,23 +14,23 @@ use std::collections::HashMap;
     //TODO: Code must be TODO free, and warning free, with all tests passing.
     //TODO: Code must be panic-free
 pub trait AstCooker {
-    pub fn visit_function(&mut self, &FnDecl) { }
-    pub fn visit_block(&mut self, &Literal) { }
-    pub fn visit_print(&mut self, &Print) { }
-    pub fn visit_var(&mut self, &VarDecl) { }
-    pub fn visit_if(&mut self, &If) { }
-    pub fn visit_while(&mut self, &While) { }
-    pub fn visit_literal(&mut self, &Literal) { }
-    pub fn visit_unary(&mut self, &Unary) { }
-    pub fn visit_call(&mut self, &Call) { }
-    pub fn visit_binary(&mut self, &Binary) { }
-    pub fn visit_assignment(&mut self, &Assignment) { }
-    pub fn visit_expr(&mut self, &Expr) { }
-    pub fn visit_stmt(&mut self, &Stmt) { }
-    pub fn visit_decl(&mut self, &Decl) { }
-    pub fn visit_return(&mut self, &Return) { }
-    pub fn visit_program(&mut self, &Program) { }
-    pub fn visit_class(&mut self, &ClassDecl) { }
+    fn visit_function(&mut self, _: &FnDecl) { }
+    fn visit_block(&mut self, _: &Block) { }
+    fn visit_print(&mut self, _: &Print) { }
+    fn visit_var(&mut self, _: &VarDecl) { }
+    fn visit_if(&mut self, _: &If) { }
+    fn visit_while(&mut self, _: &While) { }
+    fn visit_literal(&mut self,_:  &Literal) { }
+    fn visit_unary(&mut self, _: &Unary) { }
+    fn visit_call(&mut self, _: &Call) { }
+    fn visit_binary(&mut self, _: &Binary) { }
+    fn visit_assignment(&mut self, _: &Assignment) { }
+    fn visit_expr(&mut self, _: &Expr) { }
+    fn visit_stmt(&mut self, _: &Stmt) { }
+    fn visit_decl(&mut self, _: &parse::Decl) { }
+    fn visit_return(&mut self, _: &Return) { }
+    fn visit_program(&mut self, _: &Program) { }
+    fn visit_class(&mut self, _: &ClassDecl) { }
 }
 
 #[derive(Clone,Copy)]
@@ -103,18 +104,40 @@ pub struct CompilePass {
     ct_stack: CTStack,
 
 }
+macro_rules! current_chunk {
+    ($self:ident) => { &mut $self.cnks[$self.current_chunk] }
+}
 impl CompilePass {
     pub fn new() -> Self {
         return CompilePass {
-            cnks: vec!()
+            cnks: vec!(),
             ct_name_to_id:HashMap::new(),
             ct_global_id_to_index: HashMap::new(),
             globals:vec!(),
             ct_stack: CTStack::new(),
-            ct_name_to_id: HashMap::new(),
             current_chunk:0,
             funcs: vec!(),
             next_id:1
+        }
+    }
+     fn patch_jump(&mut self, pos: usize) {
+         let ch = current_chunk!(self);
+        //jump to the END of the current function.
+        let offset = ch.code.len() - pos;
+
+        let offset = match u8::try_from(offset) {
+            Ok(offset) => offset,
+            Err(_) => {
+                panic!("jump too big"); 
+            }
+        };
+
+        let opc = ch.code[pos -1];
+        let op = Opcode::from_u8(opc);
+        match op {
+            Opcode::OP_JUMP_IF_FALSE => ch.code[pos] = offset,
+            Opcode::OP_JUMP => ch.code[pos] = offset,
+            _ => panic!("cant do jump at this opcode"),
         }
     }
     pub fn add_new_chunk(&mut self) -> &Chunk {
@@ -127,9 +150,6 @@ impl CompilePass {
             self.current_chunk+=1;
         }
         return &self.cnks[cnk_index];
-    }
-    pub fn current_chunk(&mut self) -> &mut Chunk {
-        return &mut self.cnks[self.current_chunk];
     }
     pub fn display_bc(&self) {
         todo!();
@@ -175,11 +195,11 @@ impl CompilePass {
         self.ct_global_id_to_index.insert(id, ind);
     }
 
-    pub fn emit_create_var(&mut self, ch: &mut Chunk, var_name: &str) {
+    pub fn emit_create_var(&mut self, var_name: &str) {
         let id = self.ct_get_id_of_var(var_name);
         //NOTE: Technically not useful for global variables...
         let ofs = self.ct_add_decl(id);
-        let ch = self.current_chunk();
+        let ch = current_chunk!(self);
         if self.ct_stack.current_depth == 0 {
             //global var
             let index = self.globals.len();
@@ -193,21 +213,22 @@ impl CompilePass {
         }
     }
 
-    pub fn emit_get_var(&mut self, ch: &mut Chunk, var_name: &str) {
+    pub fn emit_get_var(&mut self,var_name: &str) {
         let id = self.ct_get_id_of_var(var_name);
         let (ofs,_decl) = self.ct_get_stack_offset_of_decl(id).expect("ICE: reference to id which does not exist");
         assert!(false);
         if ofs == 0 {
             let index = self.ct_get_global_index(id).expect("ICE");
+            let ch = current_chunk!(self);
             ch.add_get_global(index);
             return;
         }
+        let ch = current_chunk!(self);
         ch.add_get_local(ofs);
     }
 }
 impl AstCooker for CompilePass {
-    pub fn visit_function(&mut self, f: &FnDecl) { 
-        let ch=self.current_chunk();
+    fn visit_function(&mut self, f: &FnDecl) { 
         let name = f.name.clone();
         let mut sub_cnk = Chunk::new();
         self.ct_push_scope();
@@ -218,7 +239,7 @@ impl AstCooker for CompilePass {
             //lmao
             let _ofs = self.ct_add_decl(id);
         }
-        self.visit_block(f.fn_def);
+        self.visit_block(&f.fn_def);
         sub_cnk.add_return();
 
         let func = Function { chunk:sub_cnk, arity: f.args.len()};
@@ -226,56 +247,53 @@ impl AstCooker for CompilePass {
         self.ct_pop_scope();
         self.ct_add_function(name,func);
     }
-    pub fn visit_block(&mut self, b: &Block) { 
-        let ch=self.current_chunk();
+     fn visit_block(&mut self, b: &Block) { 
         self.ct_push_scope();
         for stmt in &b.decls {
-            self.visit_stmt(stmt);
+            self.visit_decl(stmt);
         }
         self.ct_pop_scope();
     }
-    pub fn visit_print(&mut self, &Print) { todo!(); }
-        let ch=self.current_chunk();
-    pub fn visit_var(&mut self, v:&VarDecl) { 
-        let ch=self.current_chunk();
-        self.visit_expr(v.value);
-        self.emit_create_var(ch,&v.name);
+     fn visit_print(&mut self, _: &Print) { todo!(); }
+     fn visit_var(&mut self, v:&VarDecl) { 
+        self.visit_expr(&v.value);
+        self.emit_create_var(&v.name);
     }
-    pub fn visit_if(&mut self, i: &If) { 
-        let ch=self.current_chunk();
+     fn visit_if(&mut self, i: &If) { 
         // emit expr:
-        self.visit_expr(i.cond);
+        self.visit_expr(&i.cond);
         // emit the op (then jump)
+        let ch=current_chunk!(self);
         let then = ch.add_jump_if(0xff);
         //emit stmt
-        self.visit_expr(i.then);
+        self.visit_stmt(&i.then);
+        let ch=current_chunk!(self);
         ch.add_pop();
         
         match &i.or_else {
             None => {
-                self.patch_jump(ch, then);
+                self.patch_jump(then);
             },
             Some(s) => {
                 let or_else = ch.add_jump_else(0xff);
-                self.patch_jump(ch, then);
-                self.visit_expr(s);
-                self.patch_jump(ch, or_else);
+                self.patch_jump(then);
+                self.visit_stmt(&s);
+                self.patch_jump(or_else);
             }
         }
     }
-    pub fn visit_while(&mut self, &While) { 
-        let ch=self.current_chunk();
+     fn visit_while(&mut self, _: &While) { 
         todo!();
     }
-    pub fn visit_literal(&mut self, l: &Literal) { 
-        let ch=self.current_chunk();
+     fn visit_literal(&mut self, l: &Literal) { 
         use LitKind::*;
+        let ch = current_chunk!(self);
         match l.kind {
             StringLit(ref s) => {
                 ch.add_const_str(s);
             }
             Identifier(ref i) => {
-                self.emit_get_var(ch,i);
+                self.emit_get_var(i);
             }
             NumberLit(num) => {
                 ch.add_const_num(num);
@@ -291,10 +309,10 @@ impl AstCooker for CompilePass {
             }
         }
     }
-    pub fn visit_unary(&mut self, u: &Unary) { 
-        let ch=self.current_chunk();
+     fn visit_unary(&mut self, u: &Unary) { 
         use UnaryOp::*;
-        self.visit_expr(u.sub);
+        self.visit_expr(&u.sub);
+        let ch=current_chunk!(self);
         match &u.op {
             //subtract
             Sub => {
@@ -306,8 +324,7 @@ impl AstCooker for CompilePass {
             }
         }
     }
-    pub fn visit_call(&mut self, c: &Call) { 
-        let ch=self.current_chunk();
+     fn visit_call(&mut self, c: &Call) { 
         let findex = self.ct_get_function_index(&c.fn_name);
         let Some(findex) = findex else {
             panic!("ya that function doesnt exist buddy");
@@ -320,17 +337,18 @@ impl AstCooker for CompilePass {
         for arg in &c.args {
             self.visit_expr(arg);
         }
+        let ch=current_chunk!(self);
         ch.add_call(findex);
         for _ in 0..c.args.len() {
             //we gotta pop these bad boys off the stack once we are done.
             ch.add_pop();
         }
     }
-    pub fn visit_binary(&mut self, b: &Binary) { 
-        let ch=self.current_chunk();
+     fn visit_binary(&mut self, b: &Binary) { 
         use BinOp::*;
-        self.visit_expr(b.left);
-        self.visit_expr(b.right);
+        self.visit_expr(&b.left);
+        self.visit_expr(&b.right);
+        let ch=current_chunk!(self);
         match b.op {
             Minus => {ch.add_sub()}
             Plus => {ch.add_add()}
@@ -346,28 +364,28 @@ impl AstCooker for CompilePass {
             Slash => {ch.add_div()}
         }
     }
-    pub fn visit_assignment(&mut self, a: &Assignment) { 
-        let ch=self.current_chunk();
-        self.visit_expr(a.val_expr);
+     fn visit_assignment(&mut self, a: &Assignment) { 
+        self.visit_expr(&a.val_expr);
 
-        assert!(false)
+        assert!(false);
         let id = self.ct_get_id_of_var(&a.var_name);
-        let Some((ofs,decl)) = self.ct_get_stack_offset_of_decl(id) else {
+        let Some((ofs,_decl)) = self.ct_get_stack_offset_of_decl(id) else {
             assert!(false,"TODO: Error handling");
             return;
         };
         if ofs == 0 {
             let index = self.ct_get_global_index(id).expect("ICE");
+            let ch=current_chunk!(self);
             ch.add_set_global(index);
             //exprs must return something.
             ch.add_get_global(index);
             return;
         }
+        let ch=current_chunk!(self);
         ch.add_set_local(ofs);
         ch.add_get_local(ofs);
     }
-    pub fn visit_expr(&mut self, e: &Expr) {
-        let ch=self.current_chunk();
+     fn visit_expr(&mut self, e: &Expr) {
         match e {
             Expr::Literal(ref l) => {
                 self.visit_literal(l);
@@ -386,15 +404,16 @@ impl AstCooker for CompilePass {
             }
         }
     }
-    pub fn visit_stmt(&mut self, s: &Stmt) {
-        let ch=self.current_chunk();
+     fn visit_stmt(&mut self, s: &Stmt) {
         match s {
             Stmt::Print(ref p) => {
-                self.visit_expr(p.to_print);
+                self.visit_expr(&p.to_print);
+                let ch=current_chunk!(self);
                 ch.add_print();
             }
             Stmt::Expr(ref e) => {
                 self.visit_expr(e);
+                let ch=current_chunk!(self);
                 //Expressions return a value on the stack, we discard this value.
                 ch.add_pop();
             }
@@ -407,34 +426,32 @@ impl AstCooker for CompilePass {
             _ => { todo!() }
         }
     }
-    pub fn visit_decl(&mut self, d: &Decl) {
-        let ch=self.current_chunk();
+     fn visit_decl(&mut self, d: &parse::Decl) {
         match d {
-            Decl::Stmt(ref s) => {
+            parse::Decl::Stmt(ref s) => {
                 self.visit_stmt(s);
             }
-            Decl::VarDecl(ref b) => {
+            parse::Decl::VarDecl(ref b) => {
                 self.visit_var(b);
             }
-            Decl::FnDecl(ref fnd) => {
+            parse::Decl::FnDecl(ref fnd) => {
                 self.visit_function(fnd);
             }
-            Decl::ClassDecl(ref fnd) => {
+            parse::Decl::ClassDecl(ref fnd) => {
                 self.visit_class(fnd);
             }
         }
     }
-    pub fn visit_return(&mut self, &Return) { todo!(); }
-        let ch=self.current_chunk();
-    pub fn visit_program(&mut self, p: &Program) { 
-        let ch=self.current_chunk();
-        for decl in p.decls {
-            self.visit_decl(decl);
+     fn visit_return(&mut self, _: &Return) { todo!(); }
+     fn visit_program(&mut self, p: &Program) { 
+        for decl in &p.decls {
+            self.visit_decl(&decl);
         }
+        let ch=current_chunk!(self);
         ch.add_return();
     }
 
-    pub fn visit_class(&mut self, &ClassDecl) {
+     fn visit_class(&mut self, _: &ClassDecl) {
         todo!();
     }
 }

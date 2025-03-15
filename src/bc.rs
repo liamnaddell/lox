@@ -3,7 +3,7 @@ use std::fmt;
 #[repr(u8)]
 #[derive(Clone,Copy,Ord,PartialOrd,PartialEq,Eq,Debug)]
 #[allow(non_camel_case_types)]
-enum Opcode {
+pub enum Opcode {
     OP_RETURN = 0,
     OP_CONSTANT,
     //discard top value on stack
@@ -42,7 +42,7 @@ enum Opcode {
 /*STOP*/}
 
 impl Opcode {
-    fn from_u8(mo: u8) -> Opcode {
+    pub fn from_u8(mo: u8) -> Opcode {
         if mo < (Opcode::OP_NONE as u8) {
             // this is safe because mo >=0 and  mo < OP_NONE, and mo has u8 size.
             return unsafe { std::mem::transmute(mo) }
@@ -136,25 +136,6 @@ pub struct VM {
 }
 
 impl VM {
-    pub fn patch_jump(&mut self, ch: &mut Chunk, pos: usize) {
-        //jump to the END of the current function.
-        let offset = ch.code.len() - pos;
-
-        let offset = match u8::try_from(offset) {
-            Ok(offset) => offset,
-            Err(_) => {
-                panic!("jump too big"); 
-            }
-        };
-
-        let opc = ch.code[pos -1];
-        let op = Opcode::from_u8(opc);
-        match op {
-            Opcode::OP_JUMP_IF_FALSE => ch.code[pos] = offset,
-            Opcode::OP_JUMP => ch.code[pos] = offset,
-            _ => panic!("cant do jump at this opcode"),
-        }
-    }
 
     pub fn new() -> VM {
         return VM {funcs: vec!(),
@@ -508,8 +489,8 @@ impl VM {
 }
 
 pub struct Chunk {
-    code: Vec<u8>,
-    constants: Vec<Value>,
+    pub code: Vec<u8>,
+    pub constants: Vec<Value>,
 }
 
 
