@@ -224,8 +224,7 @@ impl CompilePass {
 
     pub fn emit_get_var(&mut self,var_name: &str) {
         let id = self.ct_get_id_of_var(var_name);
-        let (ofs,_decl) = self.ct_get_stack_offset_of_decl(id).expect("ICE: reference to id which does not exist");
-        assert!(false);
+        let (ofs,decl) = self.ct_get_stack_offset_of_decl(id).expect("ICE: reference to id which does not exist");
         if ofs == 0 {
             let index = self.ct_get_global_index(id).expect("ICE");
             let ch = current_chunk!(self);
