@@ -16,9 +16,11 @@ use crate::parse;
 pub trait AstCooker {
     fn visit_function(&mut self, _: &FnDecl) { }
     fn visit_block(&mut self, _: &Block) { }
+    #[allow(dead_code)]
     fn visit_print(&mut self, _: &Print) { }
     fn visit_var(&mut self, _: &VarDecl) { }
     fn visit_if(&mut self, _: &If) { }
+    #[allow(dead_code)]
     fn visit_while(&mut self, _: &While) { }
     fn visit_literal(&mut self,_:  &Literal) { }
     fn visit_unary(&mut self, _: &Unary) { }
@@ -28,6 +30,7 @@ pub trait AstCooker {
     fn visit_expr(&mut self, _: &Expr) { }
     fn visit_stmt(&mut self, _: &Stmt) { }
     fn visit_decl(&mut self, _: &parse::Decl) { }
+    #[allow(dead_code)]
     fn visit_return(&mut self, _: &Return) { }
     fn visit_program(&mut self, _: &Program) { }
     fn visit_class(&mut self, _: &ClassDecl) { }
@@ -140,7 +143,7 @@ impl CompilePass {
             _ => panic!("cant do jump at this opcode"),
         }
     }
-    pub fn add_new_chunk(&mut self) -> &Chunk {
+    pub fn add_new_chunk(&mut self) ->usize {
         let cnk = Chunk::new();
         let cnk_index = self.cnks.len();
         self.cnks.push(cnk);
@@ -149,10 +152,13 @@ impl CompilePass {
         if cnk_index != 0 {
             self.current_chunk+=1;
         }
-        return &self.cnks[cnk_index];
+        return cnk_index;
     }
     pub fn display_bc(&self) {
-        todo!();
+        for i in 0..self.funcs.len() {
+            let func = &self.funcs[i];
+            println!("<func #{} {}",i,func);
+        }
     }
     pub fn ct_push_scope(&mut self) {
         self.ct_stack.push_frame();
@@ -230,7 +236,7 @@ impl CompilePass {
 impl AstCooker for CompilePass {
     fn visit_function(&mut self, f: &FnDecl) { 
         let name = f.name.clone();
-        let mut sub_cnk = Chunk::new();
+        let cnk_no = self.add_new_chunk();
         self.ct_push_scope();
         for arg in &f.args {
             //we don't actually SET the variable, just DECLARE it since it's on the STACK
@@ -240,9 +246,10 @@ impl AstCooker for CompilePass {
             let _ofs = self.ct_add_decl(id);
         }
         self.visit_block(&f.fn_def);
+        let sub_cnk = current_chunk!(self);
         sub_cnk.add_return();
 
-        let func = Function { chunk:sub_cnk, arity: f.args.len()};
+        let func = Function { chunk:cnk_no, arity: f.args.len()};
 
         self.ct_pop_scope();
         self.ct_add_function(name,func);

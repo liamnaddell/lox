@@ -105,9 +105,7 @@ fn is_falsey(v: &Value) -> bool {
 }
 
 pub struct Function {
-    //index into vm.funcs
-    pub chunk: Chunk,
-    //arity of the function.
+    pub chunk: usize,
     pub arity: usize,
 }
 impl fmt::Display for Function {
@@ -130,6 +128,7 @@ pub struct VM {
     //Means of storing Function's and their bytecode.
     //Array indexes are "function id's".
     pub funcs: Vec<Function>,
+    pub chunks: Vec<Chunk>,
     pub stack: Vec<Value>,
     frames: Vec<Frame>,
     pub globals: Vec<Value>,
@@ -139,6 +138,7 @@ impl VM {
 
     pub fn new() -> VM {
         return VM {funcs: vec!(),
+            chunks:vec!(),
             frames:vec!(),
             stack:vec!(),
             globals: vec!(),
@@ -155,12 +155,6 @@ impl VM {
     }
     pub fn pop_stack(&mut self) -> Value {
         return self.stack.pop().expect("ICE");
-    }
-    pub fn display_bc(&self) {
-        for i in 0..self.funcs.len() {
-            let func = &self.funcs[i];
-            println!("<func #{} {}",i,func);
-        }
     }
     fn get_fn(&self,opc:Opcode) -> FBinOp {
         use Opcode::*;
@@ -186,7 +180,7 @@ impl VM {
     }
 
     pub fn current_chunk(&self) -> &Chunk {
-        return &self.current_func().chunk;
+        return &self.chunks[self.current_func().chunk];
     }
 
     pub fn current_code(&self) -> &Vec<u8> {

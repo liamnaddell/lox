@@ -58,17 +58,6 @@ impl<'a> TknSlice<'a> {
     }
 }
 
-//TODO: This should be merged with bc::Value, thereby implementing Display properly. 
-//this Value should be moved to it's own file, value.rs. However, this cannot be done 
-//until bc properly implements string operations.
-#[derive(Debug,Clone)]
-pub enum Val {
-    StringLit(String),
-    NumberLit(f64),
-    Bool(bool),
-    Nil,
-}
-
 #[derive(Debug)]
 pub enum UnaryOp {
     Sub,
@@ -211,6 +200,7 @@ impl FnDecl {
 
 #[derive(Debug)]
 pub struct Block {
+    #[allow(dead_code)]
     pub locus: usize,
     pub decls: Vec<Box<Decl>>,
 }
@@ -298,6 +288,7 @@ impl VarDecl {
 
 #[derive(Debug)]
 pub struct If {
+    #[allow(dead_code)]
     pub locus: usize,
     pub cond: Box<Expr>,
     pub then: Box<Stmt>,
@@ -383,6 +374,7 @@ pub enum LitKind {
 
 #[derive(Debug)]
 pub struct Literal {
+    #[allow(dead_code)]
     pub locus: usize,
     pub kind: LitKind,
 }
@@ -432,6 +424,7 @@ impl Literal {
 pub struct Unary {
     pub op: UnaryOp,
     pub sub: Box<Expr>,
+    #[allow(dead_code)]
     pub locus: usize,
 }
 
@@ -467,6 +460,7 @@ pub struct Call {
 
 #[derive(Debug)]
 pub struct Binary {
+    #[allow(dead_code)]
     pub locus: usize,
     pub op: BinOp,
     pub left: Box<Expr>,
@@ -651,11 +645,14 @@ pub struct Return {
 pub enum Stmt {
     Print(Print),
     If(If),
+    #[allow(dead_code)]
     While(While),
     Expr(Expr),
     #[allow(dead_code)]
     For(For),
+    #[allow(dead_code)]
     Return(Return),
+    #[allow(dead_code)]
     Block(Block), 
 }
 
@@ -692,6 +689,7 @@ impl Stmt {
 
 #[derive(Debug)]
 pub enum Decl {
+    #[allow(dead_code)]
     ClassDecl(ClassDecl),
     FnDecl(FnDecl), 
     VarDecl(VarDecl), 
