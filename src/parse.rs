@@ -1,7 +1,6 @@
 use crate::token::*;
 use crate::error::*;
 use std::cmp;
-use crate::bc;
 
 struct TknSlice<'a> {
     tkns: &'a Vec<Token>,
@@ -57,17 +56,6 @@ impl<'a> TknSlice<'a> {
 
         return TknSlice { tkns: self.tkns,start:self.start+new_start,end:new_end };
     }
-}
-
-//TODO: This should be merged with bc::Value, thereby implementing Display properly. 
-//this Value should be moved to it's own file, value.rs. However, this cannot be done 
-//until bc properly implements string operations.
-#[derive(Debug,Clone)]
-pub enum Val {
-    StringLit(String),
-    NumberLit(f64),
-    Bool(bool),
-    Nil,
 }
 
 #[derive(Debug)]
@@ -135,11 +123,6 @@ impl BinOp {
 }
 #[derive(Debug)]
 pub struct ClassDecl;
-impl ClassDecl {
-    pub fn emit_bc(&self, _ch: &mut bc::Chunk, _vm: &mut bc::VM) {
-        todo!();
-    }
-}
 #[derive(Debug)]
 pub struct For;
 
@@ -153,25 +136,6 @@ pub struct FnDecl {
 }
 
 impl FnDecl {
-    pub fn emit_bc(&self, _ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        let name = self.name.clone();
-        let mut sub_cnk = bc::Chunk::new();
-        vm.ct_push_scope();
-        for arg in &self.args {
-            //we don't actually SET the variable, just DECLARE it since it's on the STACK
-            //vm.emit_create_var(&mut sub_cnk,&arg);
-            let id = vm.ct_get_id_of_var(&arg);
-            //lmao
-            let _ofs = vm.ct_add_decl(id);
-        }
-        self.fn_def.emit_bc(&mut sub_cnk,vm);
-        sub_cnk.add_return();
-
-        let func = bc::Function { chunk:sub_cnk, arity: self.args.len()};
-
-        vm.ct_pop_scope();
-        vm.ct_add_function(name,func);
-    }
     fn parse(ts: TknSlice) -> Result<Box<FnDecl>> {
         let mut args = vec!();
         //fun name(<args>) {}
@@ -236,18 +200,12 @@ impl FnDecl {
 
 #[derive(Debug)]
 pub struct Block {
+    #[allow(dead_code)]
     pub locus: usize,
     pub decls: Vec<Box<Decl>>,
 }
 
 impl Block {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        vm.ct_push_scope();
-        for stmt in &self.decls {
-            stmt.emit_bc(ch,vm);
-        }
-        vm.ct_pop_scope();
-    }
     //NOTE: removes semicolons
     fn parse(ts: TknSlice) -> Result<Box<Block>> {
         //<stmt>;
@@ -300,11 +258,6 @@ pub struct VarDecl {
 }
 
 impl VarDecl {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        self.value.emit_bc(ch, vm);
-        vm.emit_create_var(ch,&self.name);
-    }
-
     fn parse(ts: TknSlice) -> Result<Box<VarDecl>> {
         //var <ident> = <expr>
         if ts.size() < 4 {
@@ -335,6 +288,7 @@ impl VarDecl {
 
 #[derive(Debug)]
 pub struct If {
+    #[allow(dead_code)]
     pub locus: usize,
     pub cond: Box<Expr>,
     pub then: Box<Stmt>,
@@ -342,29 +296,7 @@ pub struct If {
 }
 
 impl If {
-    pub fn emit_bc (&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        // emit expr:
-        self.cond.emit_bc(ch, vm);
-        // emit the op (then jump)
-        let then = ch.add_jump_if(0xff);
-        //emit stmt
-        self.then.emit_bc(ch, vm);
-        ch.add_pop();
-        
-        match &self.or_else {
-            None => {
-                vm.patch_jump(ch, then);
-            },
-            Some(s) => {
-                let or_else = ch.add_jump_else(0xff);
-                vm.patch_jump(ch, then);
-                s.emit_bc(ch, vm);
-                vm.patch_jump(ch, or_else);
-            }
-        }
-    }
     fn parse(ts: TknSlice) -> Result<Box<If>> {
-
         let left_paren = ts.get(1);
 
         if left_paren.tkn_type == TokenType::LeftParen {
@@ -442,34 +374,12 @@ pub enum LitKind {
 
 #[derive(Debug)]
 pub struct Literal {
+    #[allow(dead_code)]
     pub locus: usize,
     pub kind: LitKind,
 }
 
 impl Literal {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        use LitKind::*;
-        match self.kind {
-            StringLit(ref s) => {
-                ch.add_const_str(s);
-            }
-            Identifier(ref i) => {
-                vm.emit_get_var(ch,i);
-            }
-            NumberLit(num) => {
-                ch.add_const_num(num);
-            }
-            True => {
-                ch.add_true();
-            }
-            False => {
-                ch.add_false();
-            }
-            Nil => {
-                ch.add_nil();
-            }
-        }
-    }
     fn parse(mut ts: TknSlice) -> Result<Box<Literal>> {
         //Rust blocks which return a Result are basically
         //the same as do blocks in haskell.
@@ -514,24 +424,11 @@ impl Literal {
 pub struct Unary {
     pub op: UnaryOp,
     pub sub: Box<Expr>,
+    #[allow(dead_code)]
     pub locus: usize,
 }
 
 impl Unary {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        use UnaryOp::*;
-        self.sub.emit_bc(ch,vm);
-        match &self.op {
-            //subtract
-            Sub => {
-                ch.add_negate();
-            }
-            // !a
-            Neg => {
-                ch.add_not();
-            }
-        }
-    }
     fn parse(mut ts: TknSlice) -> Result<Box<Unary>> {
         let loc = ts.loc(0);
         //should only be called by expr which checks this.
@@ -561,56 +458,13 @@ pub struct Call {
     pub args: Vec<Box<Expr>>
 }
 
-impl Call {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk,vm: &mut bc::VM) {
-        let findex = vm.ct_get_function_index(&self.fn_name);
-        let Some(findex) = findex else {
-            panic!("ya that function doesnt exist buddy");
-        };
-        let funct = &vm.funcs[findex];
-        if self.args.len() != funct.arity {
-            panic!("Arity mismatch :/, expected {} args got {}  now i die", funct.arity,self.args.len());
-
-        }
-        for arg in &self.args {
-            arg.emit_bc(ch,vm);
-        }
-        ch.add_call(findex);
-        for _ in 0..self.args.len() {
-            //we gotta pop these bad boys off the stack once we are done.
-            ch.add_pop();
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct Binary {
+    #[allow(dead_code)]
     pub locus: usize,
     pub op: BinOp,
     pub left: Box<Expr>,
     pub right: Box<Expr>,
-}
-
-impl Binary {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        use BinOp::*;
-        self.left.emit_bc(ch,vm);
-        self.right.emit_bc(ch,vm);
-        match self.op {
-            Minus => {ch.add_sub()}
-            Plus => {ch.add_add()}
-            Star => {ch.add_mul()}
-            BangEqual => {ch.add_equal();ch.add_not()}
-            EqualEqual => {ch.add_equal()}
-            Greater => {ch.add_greater()}
-            GreaterEqual => {ch.add_less();ch.add_not()}
-            Less => {ch.add_less()}
-            LessEqual => {ch.add_greater();ch.add_not()}
-            And => {ch.add_and()}
-            Or => {ch.add_or()}
-            Slash => {ch.add_div()}
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -619,13 +473,6 @@ pub struct Assignment {
     pub locus: usize,
     pub var_name: String,
     pub val_expr: Box<Expr>,
-}
-
-impl Assignment {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        self.val_expr.emit_bc(ch,vm);
-        vm.emit_assign_var(ch,&self.var_name);
-    }
 }
 
 #[derive(Debug)]
@@ -642,25 +489,6 @@ fn bop_higher_prec(bop:BinOp,maybe_high_prec_bop:BinOp) -> bool {
 }
 
 impl Expr {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk,vm: &mut bc::VM) {
-        match &self {
-            Expr::Literal(ref l) => {
-                l.emit_bc(ch,vm);
-            }
-            Expr::Unary(ref u) => {
-                u.emit_bc(ch,vm);
-            }
-            Expr::Binary(ref b) => {
-                b.emit_bc(ch,vm);
-            }
-            Expr::Call(ref c) => {
-                c.emit_bc(ch,vm);
-            }
-            Expr::Assignment(ref a) => {
-                a.emit_bc(ch,vm);
-            }
-        }
-    }
     fn parse(mut ts: TknSlice) -> Result<Box<Expr>> {
         if ts.size() == 0 {
             panic!("I think this should paic now");
@@ -817,35 +645,18 @@ pub struct Return {
 pub enum Stmt {
     Print(Print),
     If(If),
+    #[allow(dead_code)]
     While(While),
     Expr(Expr),
     #[allow(dead_code)]
     For(For),
+    #[allow(dead_code)]
     Return(Return),
+    #[allow(dead_code)]
     Block(Block), 
 }
 
 impl Stmt {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        match self {
-            Stmt::Print(ref p) => {
-                p.to_print.emit_bc(ch,vm);
-                ch.add_print();
-            }
-            Stmt::Expr(ref e) => {
-                e.emit_bc(ch,vm);
-                //Expressions return a value on the stack, we discard this value.
-                ch.add_pop();
-            }
-            Stmt::If(ref i) => {
-                return i.emit_bc(ch, vm);
-            }
-            Stmt::Block(ref b) => {
-                return b.emit_bc(ch, vm);
-            }
-            _ => { todo!() }
-        }
-    }
     //NOTE: Does !NOT! parse semicolons.
     fn parse(ts: TknSlice) -> Result<Box<Stmt>> {
         if ts.size() == 0 {
@@ -878,6 +689,7 @@ impl Stmt {
 
 #[derive(Debug)]
 pub enum Decl {
+    #[allow(dead_code)]
     ClassDecl(ClassDecl),
     FnDecl(FnDecl), 
     VarDecl(VarDecl), 
@@ -885,22 +697,6 @@ pub enum Decl {
 }
 
 impl Decl {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        match self {
-            Decl::Stmt(ref s) => {
-                s.emit_bc(ch,vm);
-            }
-            Decl::VarDecl(ref b) => {
-                return b.emit_bc(ch,vm);
-            }
-            Decl::FnDecl(ref fnd) => {
-                return fnd.emit_bc(ch,vm);
-            }
-            Decl::ClassDecl(ref fnd) => {
-                return fnd.emit_bc(ch,vm);
-            }
-        }
-    }
     fn parse(ts: TknSlice) -> Result<Box<Decl>> {
         if ts.size() < 2 {
             return Err(new_err(ts.loc(0),"Emptiness"));
@@ -942,12 +738,6 @@ pub struct Program {
 }
 
 impl Program {
-    pub fn emit_bc(&self, ch: &mut bc::Chunk, vm: &mut bc::VM) {
-        for decl in &self.decls {
-            decl.emit_bc(ch,vm);
-        }
-        ch.add_return();
-    }
     //NOTE: Does !NOT! eat semicolons.
     fn parse(ts: TknSlice) -> Result<Box<Program>> {
         /*
