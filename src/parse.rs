@@ -1,6 +1,71 @@
 use crate::token::*;
 use crate::error::*;
 use std::cmp;
+use std::rc::Rc;
+
+type NodeId = u32;
+
+enum AstNode {
+    FnDecl(Rc<FnDecl>),
+    Block(Block),
+    Print(Print),
+    VarDecl(VarDecl),
+    If(If),
+    While(While),
+    Literal(Literal),
+    Unary(Unary),
+    Call(Call),
+    Binary(Binary),
+    Assignment(Assignment),
+    Expr(Expr),
+    Return(Return),
+    Stmt(Stmt),
+    Decl(Decl),
+    Program(Program),
+}
+struct AstNodeStore {
+    n: AstNode,
+}
+
+struct AstStore {
+    ns: Vec<AstNodeStore>,
+}
+macro_rules! do_shit {
+    ($name: ident, $add:ident,$get:ident) => {
+        fn $add(&self, ni: NodeId) -> Rc<$name> {
+            let n = &self.ns[ni as usize];
+            let AstNode::$name(ref f) = n.n else {
+                panic!("ICE");
+            };
+            return f.clone()
+        }
+        fn $get(&mut self, mut f: $name) -> Rc<$name> {
+            let ni = self.ns.len();
+            f.nodeid = ni as u32;
+            let frc = Rc::new(f);
+            self.ns.push(AstNodeStore { n: AstNode::$name(frc.clone())});
+            return frc;
+        }
+    }
+}
+impl AstStore {
+    do_shit!(FnDecl,get_fndecl,add_fndecl);
+    /*
+    fn get_fndecl(&self, ni: NodeId) -> Rc<FnDecl> {
+        let n = &self.ns[ni as usize];
+        let AstNode::FnDecl(ref f) = n.n else {
+            panic!("ICE");
+        };
+        return f.clone()
+    }
+    fn add_fndecl(&mut self, mut f: FnDecl) -> Rc<FnDecl> {
+        let ni = self.ns.len();
+        f.nodeid = ni as u32;
+        let frc = Rc::new(f);
+        self.ns.push(AstNodeStore { n: AstNode::FnDecl(frc.clone())});
+        return frc;
+    }*/
+}
 
 struct TknSlice<'a> {
     tkns: &'a Vec<Token>,
@@ -133,6 +198,7 @@ pub struct FnDecl {
     pub name: String,
     pub args: Vec<String>,
     pub fn_def: Box<Block>,
+    pub nodeid: NodeId,
 }
 
 impl FnDecl {
@@ -191,7 +257,7 @@ impl FnDecl {
             return Err(new_err(ts.loc(i),"Function has no {}"));
         }
         let block = Block::parse(ts.sub(i+1,ts.end()))?;
-        return Ok(Box::new(FnDecl {locus:ts.loc(0), name:fn_name.clone(),args:args,fn_def:block}));
+        return Ok(Box::new(FnDecl {nodeid: 0,locus:ts.loc(0), name:fn_name.clone(),args:args,fn_def:block}));
 
 
     }
@@ -784,6 +850,11 @@ impl Program {
         }
         return Ok(Box::new(p));
     }
+}
+
+struct ParsePass {
+    tkns: Vec<Token>,
+    ast: AstStore,
 }
 
 pub fn parse(tkns: Vec<Token>) -> Option<Box<Program>> {
