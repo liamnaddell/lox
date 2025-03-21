@@ -2,26 +2,28 @@ use crate::token::*;
 use crate::error::*;
 use std::cmp;
 use std::rc::Rc;
+use crate::ast::*;
 
 type NodeId = u32;
 
+//TODO: Switch out Rc< for lifetime param
 enum AstNode {
     FnDecl(Rc<FnDecl>),
-    Block(Block),
-    Print(Print),
-    VarDecl(VarDecl),
-    If(If),
-    While(While),
-    Literal(Literal),
-    Unary(Unary),
-    Call(Call),
-    Binary(Binary),
-    Assignment(Assignment),
-    Expr(Expr),
-    Return(Return),
-    Stmt(Stmt),
-    Decl(Decl),
-    Program(Program),
+    Block(Rc<Block>),
+    Print(Rc<Print>),
+    VarDecl(Rc<VarDecl>),
+    If(Rc<If>),
+    While(Rc<While>),
+    Literal(Rc<Literal>),
+    Unary(Rc<Unary>),
+    Call(Rc<Call>),
+    Binary(Rc<Binary>),
+    Assignment(Rc<Assignment>),
+    Expr(Rc<Expr>),
+    Return(Rc<Return>),
+    Stmt(Rc<Stmt>),
+    Decl(Rc<Decl>),
+    Program(Rc<Program>),
 }
 struct AstNodeStore {
     n: AstNode,
@@ -50,21 +52,18 @@ macro_rules! do_shit {
 }
 impl AstStore {
     do_shit!(FnDecl,get_fndecl,add_fndecl);
-    /*
-    fn get_fndecl(&self, ni: NodeId) -> Rc<FnDecl> {
-        let n = &self.ns[ni as usize];
-        let AstNode::FnDecl(ref f) = n.n else {
-            panic!("ICE");
-        };
-        return f.clone()
-    }
-    fn add_fndecl(&mut self, mut f: FnDecl) -> Rc<FnDecl> {
-        let ni = self.ns.len();
-        f.nodeid = ni as u32;
-        let frc = Rc::new(f);
-        self.ns.push(AstNodeStore { n: AstNode::FnDecl(frc.clone())});
-        return frc;
-    }*/
+    do_shit!(Block,get_block,add_block);
+    do_shit!(Print,get_print,add_print);
+    do_shit!(VarDecl,get_vardecl,add_vardecl);
+    do_shit!(If,get_if,add_if);
+    do_shit!(While,get_while,add_while);
+    do_shit!(Literal,get_literal,add_literal);
+    do_shit!(Unary,get_unary,add_unary);
+    do_shit!(Call,get_call,add_call);
+    do_shit!(Binary,get_binary,add_binary);
+    do_shit!(Assignment,get_assignment,add_assignment);
+    do_shit!(Return,get_return,add_return);
+    do_shit!(Program,get_program,add_program);
 }
 
 struct TknSlice<'a> {
@@ -186,23 +185,43 @@ impl BinOp {
         return cmp::min(BinOp::Minus,BinOp::Or);
     }
 }
-#[derive(Debug)]
-pub struct ClassDecl;
-#[derive(Debug)]
-pub struct For;
 
-#[derive(Debug)]
-pub struct FnDecl {
-    #[allow(dead_code)]
-    pub locus: usize,
-    pub name: String,
-    pub args: Vec<String>,
-    pub fn_def: Box<Block>,
-    pub nodeid: NodeId,
+
+
+fn bop_higher_prec(bop:BinOp,maybe_high_prec_bop:BinOp) -> bool {
+    return maybe_high_prec_bop > bop;
 }
 
-impl FnDecl {
-    fn parse(ts: TknSlice) -> Result<Box<FnDecl>> {
+pub struct ParsePass {
+    tkns: Vec<Token>,
+    ast: AstStore,
+}
+
+macro_rules! bloob {
+    ($name: ident,$ty: ident) => {
+        fn $name(&mut self, a: $ty) -> Rc<$ty> {
+            let b = Rc::new(a);
+            return b.clone();
+        }
+    }
+}
+
+impl ParsePass {
+    bloob!(add_fndecl,FnDecl);
+    bloob!(add_block,Block);
+    bloob!(add_print,Print);
+    bloob!(add_vardecl,VarDecl);
+    bloob!(add_if,If);
+    bloob!(add_while,While);
+    bloob!(add_literal,Literal);
+    bloob!(add_unary,Unary);
+    bloob!(add_call,Call);
+    bloob!(add_binary,Binary);
+    bloob!(add_assignment,Assignment);
+    bloob!(add_return,Return);
+    bloob!(add_program,Program);
+
+    fn parse_fndecl(&mut self, ts: TknSlice) -> Result<Rc<FnDecl>> {
         let mut args = vec!();
         //fun name(<args>) {}
         if ts.size() < 6 {
@@ -257,18 +276,11 @@ impl FnDecl {
             return Err(new_err(ts.loc(i),"Function has no {}"));
         }
         let block = Block::parse(ts.sub(i+1,ts.end()))?;
-        return Ok(Box::new(FnDecl {nodeid: 0,locus:ts.loc(0), name:fn_name.clone(),args:args,fn_def:block}));
+        let fnd = FnDecl::new(0,ts.loc(0), fn_name.clone(),args,block)
+        return Ok(self.add_fndecl(fnd));
 
 
     }
-}
-
-
-#[derive(Debug)]
-pub struct Block {
-    #[allow(dead_code)]
-    pub locus: usize,
-    pub decls: Vec<Box<Decl>>,
 }
 
 impl Block {
@@ -277,7 +289,7 @@ impl Block {
         //<stmt>;
         //<stmt>;
         //...
-        let mut b = Block { locus: ts.loc(0), decls:vec!()};
+        let mut b = Block::new(0, ts.loc(0), vec!());
         let mut loc_old = 0;
         let mut loc = 0;
 
@@ -308,20 +320,6 @@ impl Block {
     }
 }
 
-#[derive(Debug)]
-pub struct Print {
-    #[allow(dead_code)]
-    pub locus: usize,
-    pub to_print: Box<Expr>,
-}
-
-#[derive(Debug)]
-pub struct VarDecl {
-    #[allow(dead_code)]
-    pub locus: usize,
-    pub name: String,
-    pub value: Box<Expr>
-}
 
 impl VarDecl {
     fn parse(ts: TknSlice) -> Result<Box<VarDecl>> {
@@ -346,20 +344,11 @@ impl VarDecl {
 
         let expr = Expr::parse(ts.sub(3,0))?;
 
-        return Ok(Box::new(VarDecl { locus: ts.loc(0)
-            , name:iname
-            , value:expr }));
+        let vd = self.add_vardecl(VarDecl::new(0,  ts.loc(0), iname, expr));
+        return Ok(vd);
     }
 }
 
-#[derive(Debug)]
-pub struct If {
-    #[allow(dead_code)]
-    pub locus: usize,
-    pub cond: Box<Expr>,
-    pub then: Box<Stmt>,
-    pub or_else: Option<Box<Stmt>>,
-}
 
 impl If {
     fn parse(ts: TknSlice) -> Result<Box<If>> {
@@ -405,44 +394,15 @@ impl If {
 
                 let or_else = Stmt::parse(ts.sub(idx,i))?;
 
-                return Ok(Box::new(If { locus: ts.loc(0)
-                    , cond: cond
-                    , then: then
-                    , or_else: Some(or_else) }));
+                let ify = self.add_if(If::new(0, ts.loc(0), cond, then, Some(or_else)));
+                return Ok(ify);
             }
-            return Ok(Box::new(If { locus: ts.loc(0)
-                , cond: cond
-                , then: then
-                , or_else: None }));
+            let ify = self.add_if(If::new(0, ts.loc(0), cond, then, None));
+            return Ok(ify);
         }
 
         return Err(new_err(ts.loc(ts.end()),"messed up if statement somehow"));
     }
-}
-
-#[derive(Debug)]
-#[allow(dead_code)]
-pub struct While {
-    pub locus: usize,
-    pub is_true: Box<Expr>,
-    pub do_block: Box<Block>,
-}
-
-#[derive(Debug)]
-pub enum LitKind {
-    StringLit(String),
-    Identifier(String),
-    NumberLit(f64),
-    True,
-    False,
-    Nil,
-}
-
-#[derive(Debug)]
-pub struct Literal {
-    #[allow(dead_code)]
-    pub locus: usize,
-    pub kind: LitKind,
 }
 
 impl Literal {
@@ -481,18 +441,12 @@ impl Literal {
                 Err(new_err(0,"expected an identifier, string literal, or number"))?
             }
         };
-        return Ok(Box::new(Literal {locus:maybe_lit.locus, kind: l}));
+        let lt = self.add_literal(Literal::new( 0,maybe_lit.locus,  l));
+        return Ok(lt);
     }
 
 }
 
-#[derive(Debug)]
-pub struct Unary {
-    pub op: UnaryOp,
-    pub sub: Box<Expr>,
-    #[allow(dead_code)]
-    pub locus: usize,
-}
 
 impl Unary {
     fn parse(mut ts: TknSlice) -> Result<Box<Unary>> {
@@ -512,46 +466,10 @@ impl Unary {
 
         let sub_expr = Expr::parse(ts)?;
 
-        return Ok(Box::new(Unary { op: una_op, sub: sub_expr, locus: loc}));
+        //TODO: remove 0
+        let un = self.add_unary(Unary::new(0, una_op, sub_expr, loc))
+        return Ok(un);
     }
-}
-
-#[derive(Debug)]
-pub struct Call {
-    #[allow(dead_code)]
-    pub locus: usize,
-    pub fn_name: String,
-    pub args: Vec<Box<Expr>>
-}
-
-#[derive(Debug)]
-pub struct Binary {
-    #[allow(dead_code)]
-    pub locus: usize,
-    pub op: BinOp,
-    pub left: Box<Expr>,
-    pub right: Box<Expr>,
-}
-
-#[derive(Debug)]
-pub struct Assignment {
-    #[allow(dead_code)]
-    pub locus: usize,
-    pub var_name: String,
-    pub val_expr: Box<Expr>,
-}
-
-#[derive(Debug)]
-pub enum Expr {
-    Literal(Literal),
-    Unary(Unary),
-    Call(Call),
-    Binary(Binary),
-    Assignment(Assignment),
-}
-
-fn bop_higher_prec(bop:BinOp,maybe_high_prec_bop:BinOp) -> bool {
-    return maybe_high_prec_bop > bop;
 }
 
 impl Expr {
@@ -628,9 +546,9 @@ impl Expr {
                 let tse = ts.sub(prison_begin,ts.end());
                 arglist.push(Expr::parse(tse)?);
             }
-            return Ok(Box::new(Expr::Call(Call { locus:ts.loc(0),fn_name:fnname.clone(),args:arglist})));
+            let c = self.add_call(Call::new(  0,ts.loc(0),fnname.clone(),arglist));
+            return Ok(Box::new(Expr::Call(c)));
         }}
-
 
         //Fourth, try to parse an assignment.
         if ts.size() > 2 && ts.get(1).tkn_type == TokenType::Equal {
@@ -638,7 +556,8 @@ impl Expr {
                 return Err(new_err(ts.loc(0), "LHS of assignment is not identifier"));
             };
             let sub = Expr::parse(ts.sub(2,0))?;
-            return Ok(Box::new(Expr::Assignment( Assignment {locus:ts.loc(1),var_name:fnname.clone(),val_expr: sub})));
+            let ass = self.add_assignment(Assignment::new(0,ts.loc(1),fnname.clone(), sub));
+            return Ok(Box::new(Expr::Assignment(ass)));
         }
 
         /*
@@ -696,31 +615,11 @@ impl Expr {
         //there was a bin op.
         let left: Box<Expr> = Expr::parse(ts.sub(0,bop_loc))?;
         let right: Box<Expr> = Expr::parse(ts.sub(bop_loc+1,0))?;
-        return Ok(Box::new(Expr::Binary(Binary {locus:bop_loc,op:bop,left,right})));
+        let bin = self.add_binary(Binary::new(0,bop_loc,bop,left,right));
+        return Ok(Box::new(Expr::Binary(bin)));
     }
 }
 
-#[derive(Debug)]
-pub struct Return {
-    #[allow(dead_code)]
-    pub locus: usize,
-    //TODO(rval): Add return values
-}
-
-#[derive(Debug)]
-pub enum Stmt {
-    Print(Print),
-    If(If),
-    #[allow(dead_code)]
-    While(While),
-    Expr(Expr),
-    #[allow(dead_code)]
-    For(For),
-    #[allow(dead_code)]
-    Return(Return),
-    #[allow(dead_code)]
-    Block(Block), 
-}
 
 impl Stmt {
     //NOTE: Does !NOT! parse semicolons.
@@ -733,7 +632,8 @@ impl Stmt {
         match first.tkn_type {
             TokenType::Print => {
                 let sub = Expr::parse(ts.sub(1,0))?;
-                return Ok(Box::new(Stmt::Print(Print{locus:ts.loc(0),to_print:sub}))); 
+                let prt = self.add_print(Print::new(0, ts.loc(0),sub));
+                return Ok(Box::new(Stmt::Print(prt))); 
             },
             TokenType::If => {
                 return Ok(Box::new(Stmt::If(*If::parse(ts.sub(0,0))?))); 
@@ -753,14 +653,6 @@ impl Stmt {
     }
 }
 
-#[derive(Debug)]
-pub enum Decl {
-    #[allow(dead_code)]
-    ClassDecl(ClassDecl),
-    FnDecl(FnDecl), 
-    VarDecl(VarDecl), 
-    Stmt(Stmt), 
-}
 
 impl Decl {
     fn parse(ts: TknSlice) -> Result<Box<Decl>> {
@@ -796,12 +688,6 @@ impl Decl {
     }
 }
 
-#[derive(Debug)]
-pub struct Program {
-    #[allow(dead_code)]
-    pub locus: usize,
-    pub decls: Vec<Box<Decl>>,
-}
 
 impl Program {
     //NOTE: Does !NOT! eat semicolons.
@@ -818,7 +704,7 @@ impl Program {
          */
         let mut loc = 0;
         let mut brace_cnt = 0;
-        let mut p = Program { locus: 0, decls: vec!() };
+        let mut p = Program { nodeid: 0, locus: 0, decls: vec!() };
         let mut loc_old = 0;
 
         while loc != ts.size() {
@@ -848,24 +734,27 @@ impl Program {
             }
             loc += 1;
         }
+        let pp = self.add_program(p);
         return Ok(Box::new(p));
     }
 }
 
-struct ParsePass {
-    tkns: Vec<Token>,
-    ast: AstStore,
+    fn parse(tkns: Vec<Token>) -> Self {
+        let pp = ParsePass {tkns: tkns, ast: AstStore::new() };
+
+        let tkn_slice = TknSlice { tkns: &tkns, start: 0, end: tkns.len() };
+
+        let maybe_expr = Program::parse(tkn_slice);
+
+        if let Err(e) = maybe_expr {
+            e.emit();
+            return None;
+        }
+
+        return Some(pp);
+    }
 }
 
-pub fn parse(tkns: Vec<Token>) -> Option<Box<Program>> {
-    let tkn_slice = TknSlice { tkns: &tkns, start: 0, end: tkns.len() };
-
-    let maybe_expr = Program::parse(tkn_slice);
-
-    if let Err(e) = maybe_expr {
-        e.emit();
-        return None;
-    }
-
-    return Some(maybe_expr.unwrap());
+pub fn parse(tkns: Vec<Token>) -> Option<ParsePass> {
+    return ParsePass::parse(tkns);
 }

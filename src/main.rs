@@ -3,6 +3,7 @@ mod parse;
 mod error;
 mod bc;
 mod compile;
+mod ast;
 use token::*;
 use parse::*;
 use bc::*;
