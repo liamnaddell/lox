@@ -2,6 +2,7 @@ use crate::parse::*;
 use crate::bc::*;
 use std::collections::HashMap;
 use crate::parse;
+use crate::ast::*;
 
 /**
  * Couldn't really come up with a better name...
@@ -239,7 +240,7 @@ impl AstCooker for CompilePass {
         let current_fn = self.current_chunk;
         let cnk_no = self.add_new_chunk();
         self.ct_push_scope();
-        for arg in &f.args {
+        for arg in f.args {
             //we don't actually SET the variable, just DECLARE it since it's on the STACK
             //self.emit_create_var(&mut sub_cnk,&arg);
             let id = self.ct_get_id_of_var(&arg);

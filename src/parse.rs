@@ -34,14 +34,14 @@ struct AstStore {
 }
 macro_rules! do_shit {
     ($name: ident, $add:ident,$get:ident) => {
-        fn $add(&self, ni: NodeId) -> Rc<$name> {
+        fn $get(&self, ni: NodeId) -> Rc<$name> {
             let n = &self.ns[ni as usize];
             let AstNode::$name(ref f) = n.n else {
                 panic!("ICE");
             };
             return f.clone()
         }
-        fn $get(&mut self, mut f: $name) -> Rc<$name> {
+        fn $add(&mut self, mut f: $name) -> Rc<$name> {
             let ni = self.ns.len();
             f.nodeid = ni as u32;
             let frc = Rc::new(f);
@@ -64,6 +64,12 @@ impl AstStore {
     do_shit!(Assignment,get_assignment,add_assignment);
     do_shit!(Return,get_return,add_return);
     do_shit!(Program,get_program,add_program);
+    fn get_root(&self) -> Rc<Program> {
+        let pgi = self.ns.len() - 1;
+        return self.get_program(pgi as u32);
+    }
+    fn new() -> Self {
+    }
 }
 
 struct TknSlice<'a> {
@@ -275,17 +281,15 @@ impl ParsePass {
         if ts.get(i).tkn_type != TokenType::LeftBrace || ts.get(ts.end()).tkn_type != TokenType::RightBrace {
             return Err(new_err(ts.loc(i),"Function has no {}"));
         }
-        let block = Block::parse(ts.sub(i+1,ts.end()))?;
+        let block = self.parse_block(ts.sub(i+1,ts.end()))?;
         let fnd = FnDecl::new(0,ts.loc(0), fn_name.clone(),args,block)
         return Ok(self.add_fndecl(fnd));
 
 
     }
-}
 
-impl Block {
     //NOTE: removes semicolons
-    fn parse(ts: TknSlice) -> Result<Box<Block>> {
+    fn parse_block(ts: TknSlice) -> Result<Box<Block>> {
         //<stmt>;
         //<stmt>;
         //...
@@ -303,7 +307,7 @@ impl Block {
             if t.tkn_type == TokenType::Semicolon && brace_cnt == 0 {
                 /* include the semicolon */
                 let ts2 = ts.sub(loc_old,loc+1);
-                let stmt = Decl::parse(ts2)?;
+                let stmt = self.parse_decl(ts2)?;
                 b.decls.push(stmt);
                 //skip semicolon
                 loc_old = loc+1;
@@ -318,11 +322,9 @@ impl Block {
 
         return Ok(Box::new(b));
     }
-}
 
 
-impl VarDecl {
-    fn parse(ts: TknSlice) -> Result<Box<VarDecl>> {
+    fn parse_vardecl(ts: TknSlice) -> Result<Box<VarDecl>> {
         //var <ident> = <expr>
         if ts.size() < 4 {
             return Err(new_err(ts.loc(0),"Emptiness"));
@@ -342,16 +344,14 @@ impl VarDecl {
             return Err(new_err(ts.loc(2), "Expected equals statement"));
         }
 
-        let expr = Expr::parse(ts.sub(3,0))?;
+        let expr = self.parse_expr(ts.sub(3,0))?;
 
         let vd = self.add_vardecl(VarDecl::new(0,  ts.loc(0), iname, expr));
         return Ok(vd);
     }
-}
 
 
-impl If {
-    fn parse(ts: TknSlice) -> Result<Box<If>> {
+    fn parse_if(ts: TknSlice) -> Result<Box<If>> {
         let left_paren = ts.get(1);
 
         if left_paren.tkn_type == TokenType::LeftParen {
@@ -373,7 +373,7 @@ impl If {
             }
             
             i+=1;
-            let cond = Expr::parse(ts.sub(1,i))?;
+            let cond = self.parse_expr(ts.sub(1,i))?;
             
             // parse the statemet (then)
             let idx = i;
@@ -381,7 +381,7 @@ impl If {
                     i += 1;
             }
 
-            let then = Stmt::parse(ts.sub(idx,
+            let then = self.parse_stmt(ts.sub(idx,
                 if ts.get(i+1).tkn_type == TokenType::Else { i } else { i + 2}))?;
 
             // if there is more left, parse or_else
@@ -392,7 +392,7 @@ impl If {
                     i -= 1;
                 }
 
-                let or_else = Stmt::parse(ts.sub(idx,i))?;
+                let or_else = self.parse_stmt(ts.sub(idx,i))?;
 
                 let ify = self.add_if(If::new(0, ts.loc(0), cond, then, Some(or_else)));
                 return Ok(ify);
@@ -403,10 +403,8 @@ impl If {
 
         return Err(new_err(ts.loc(ts.end()),"messed up if statement somehow"));
     }
-}
 
-impl Literal {
-    fn parse(mut ts: TknSlice) -> Result<Box<Literal>> {
+    fn parse_literal(mut ts: TknSlice) -> Result<Box<Literal>> {
         //Rust blocks which return a Result are basically
         //the same as do blocks in haskell.
         //the ? operator means "Return an error, if pop_or fails",
@@ -445,11 +443,9 @@ impl Literal {
         return Ok(lt);
     }
 
-}
 
 
-impl Unary {
-    fn parse(mut ts: TknSlice) -> Result<Box<Unary>> {
+    fn parse_unary(mut ts: TknSlice) -> Result<Box<Unary>> {
         let loc = ts.loc(0);
         //should only be called by expr which checks this.
         let op: &TokenType = &ts.pop_or("Expected unary operator")?.tkn_type;
@@ -464,16 +460,14 @@ impl Unary {
             }
         };
 
-        let sub_expr = Expr::parse(ts)?;
+        let sub_expr = self.parse_expr(ts)?;
 
         //TODO: remove 0
         let un = self.add_unary(Unary::new(0, una_op, sub_expr, loc))
         return Ok(un);
     }
-}
 
-impl Expr {
-    fn parse(mut ts: TknSlice) -> Result<Box<Expr>> {
+    fn parse_expr(mut ts: TknSlice) -> Result<Box<Expr>> {
         if ts.size() == 0 {
             panic!("I think this should paic now");
             //return Err(new_err(ts.loc(0),"Emptiness"));
@@ -488,7 +482,7 @@ impl Expr {
         //First try and parse a literal, since it's easy.
         if ts.size() == 1 {
             //wrong type :(
-            let lit: Box<Literal> = Literal::parse(ts)?;
+            let lit: Box<Literal> = self.parse_literal(ts)?;
 
             //this is a move
             let lit_expr: Box<Expr> = Box::new(Expr::Literal(*lit));
@@ -497,7 +491,7 @@ impl Expr {
 
         //Second, try to parse a unary.
         if ts.size() > 1 && UnaryOp::from_tkntype(&ts.get(0).tkn_type).is_some() {
-            let una: Box<Unary> = Unary::parse(ts)?;
+            let una: Box<Unary> = self.parse_unary(ts)?;
 
             //this is a move
             let una_expr: Box<Expr> = Box::new(Expr::Unary(*una));
@@ -535,7 +529,7 @@ impl Expr {
                     let expr_begin = prison_begin;
                     let expr_end = i;
                     let tse = ts.sub(expr_begin,expr_end);
-                    arglist.push(Expr::parse(tse)?);
+                    arglist.push(self.parse_expr(tse)?);
                     prison_begin = i + 1;
 
                 }
@@ -544,7 +538,7 @@ impl Expr {
             if prison_begin < ts.end() {
                 //grab that last dude (˶˃ᵕ˂˶).ᐟ.ᐟ
                 let tse = ts.sub(prison_begin,ts.end());
-                arglist.push(Expr::parse(tse)?);
+                arglist.push(self.parse_expr(tse)?);
             }
             let c = self.add_call(Call::new(  0,ts.loc(0),fnname.clone(),arglist));
             return Ok(Box::new(Expr::Call(c)));
@@ -555,7 +549,7 @@ impl Expr {
             let TokenType::Identifier(ref fnname) = ts.get(0).tkn_type else {
                 return Err(new_err(ts.loc(0), "LHS of assignment is not identifier"));
             };
-            let sub = Expr::parse(ts.sub(2,0))?;
+            let sub = self.parse_expr(ts.sub(2,0))?;
             let ass = self.add_assignment(Assignment::new(0,ts.loc(1),fnname.clone(), sub));
             return Ok(Box::new(Expr::Assignment(ass)));
         }
@@ -613,17 +607,15 @@ impl Expr {
         }
 
         //there was a bin op.
-        let left: Box<Expr> = Expr::parse(ts.sub(0,bop_loc))?;
-        let right: Box<Expr> = Expr::parse(ts.sub(bop_loc+1,0))?;
+        let left: Box<Expr> = self.parse_expr(ts.sub(0,bop_loc))?;
+        let right: Box<Expr> = self.parse_expr(ts.sub(bop_loc+1,0))?;
         let bin = self.add_binary(Binary::new(0,bop_loc,bop,left,right));
         return Ok(Box::new(Expr::Binary(bin)));
     }
-}
 
 
-impl Stmt {
     //NOTE: Does !NOT! parse semicolons.
-    fn parse(ts: TknSlice) -> Result<Box<Stmt>> {
+    fn parse_stmt(ts: TknSlice) -> Result<Box<Stmt>> {
         if ts.size() == 0 {
             return Err(new_err(ts.loc(0),"Emptiness"));
         }
@@ -631,12 +623,12 @@ impl Stmt {
         let first = ts.get(0);
         match first.tkn_type {
             TokenType::Print => {
-                let sub = Expr::parse(ts.sub(1,0))?;
+                let sub = self.parse_expr(ts.sub(1,0))?;
                 let prt = self.add_print(Print::new(0, ts.loc(0),sub));
                 return Ok(Box::new(Stmt::Print(prt))); 
             },
             TokenType::If => {
-                return Ok(Box::new(Stmt::If(*If::parse(ts.sub(0,0))?))); 
+                return Ok(Box::new(Stmt::If(*self.parse_if(ts.sub(0,0))?))); 
             },
             TokenType::While => {
                 return Err(new_err(ts.loc(0),"idk bcs while loop not implemented yet"));
@@ -645,17 +637,15 @@ impl Stmt {
                 return Err(new_err(ts.loc(0),"idk bcs return not implemented yet"));
             },
             _ => {
-                let sub = Expr::parse(ts.sub(0,0))?;
+                let sub = self.parse_expr(ts.sub(0,0))?;
                 return Ok(Box::new(Stmt::Expr(*sub))); 
             }
         }
 
     }
-}
 
 
-impl Decl {
-    fn parse(ts: TknSlice) -> Result<Box<Decl>> {
+    fn parse_decl(ts: TknSlice) -> Result<Box<Decl>> {
         if ts.size() < 2 {
             return Err(new_err(ts.loc(0),"Emptiness"));
         }
@@ -666,7 +656,7 @@ impl Decl {
         /*
         if first.tkn_type == TokenType::LeftBrace && last.tkn_type == TokenType::RightBrace {
             //TODO: ugl line
-            return Ok(Box::new(Decl::Stmt(*Stmt::parse(ts.sub(1,0))?)));
+            return Ok(Box::new(Decl::Stmt(*self.parse_stmt(ts.sub(1,0))?)));
         }
         */
 
@@ -676,22 +666,20 @@ impl Decl {
 
         if first.tkn_type == TokenType::Fun {
             //strip semicolon TODO: Uggo line
-            return Ok(Box::new(Decl::FnDecl(*FnDecl::parse(ts.sub(0,ts.end()))?)));
+            return Ok(Box::new(Decl::FnDecl(*self.parse_fndecl(ts.sub(0,ts.end()))?)));
         }
         if first.tkn_type == TokenType::Var {
-            return Ok(Box::new(Decl::VarDecl(*VarDecl::parse(ts.sub(0,ts.end()))?)));
+            return Ok(Box::new(Decl::VarDecl(*self.parse_vardecl(ts.sub(0,ts.end()))?)));
         }
 
 
         //TODO: uggo line
-        return Ok(Box::new(Decl::Stmt(*Stmt::parse(ts.sub(0,ts.end()))?)));
+        return Ok(Box::new(Decl::Stmt(*self.parse_stmt(ts.sub(0,ts.end()))?)));
     }
-}
 
 
-impl Program {
     //NOTE: Does !NOT! eat semicolons.
-    fn parse(ts: TknSlice) -> Result<Box<Program>> {
+    fn parse_program(ts: TknSlice) -> Result<Box<Program>> {
         /*
          * loop through tokens, and break out decls.
          * decls can have two types
@@ -728,7 +716,7 @@ impl Program {
             }
             if delimit_decl && brace_cnt == 0 {
                 let ts2 = ts.sub(loc_old,loc + 1);
-                let decl = Decl::parse(ts2)?;
+                let decl = self.parse_decl(ts2)?;
                 p.decls.push(decl);
                 loc_old = loc+1;
             }
@@ -737,24 +725,28 @@ impl Program {
         let pp = self.add_program(p);
         return Ok(Box::new(p));
     }
-}
+    fn new(tkns: Vec<Token>) -> Self {
+        return(ParsePass {tkns: tkns, ast: AstStore::new() });
+    }
 
-    fn parse(tkns: Vec<Token>) -> Self {
-        let pp = ParsePass {tkns: tkns, ast: AstStore::new() };
-
+    fn parse(&mut self) -> Option<Self> {
         let tkn_slice = TknSlice { tkns: &tkns, start: 0, end: tkns.len() };
 
-        let maybe_expr = Program::parse(tkn_slice);
+        let maybe_expr = self.parse_program(tkn_slice);
 
         if let Err(e) = maybe_expr {
             e.emit();
             return None;
         }
 
-        return Some(pp);
+        return Some(*self);
+    }
+    pub fn get_program(&self) -> Rc<Program> {
+        return self.ast.get_root();
     }
 }
 
 pub fn parse(tkns: Vec<Token>) -> Option<ParsePass> {
-    return ParsePass::parse(tkns);
+    let mut pp = ParsePass::new(tkns);
+    return pp.parse();
 }
