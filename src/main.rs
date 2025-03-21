@@ -2,6 +2,8 @@ mod token;
 mod parse;
 mod error;
 mod bc;
+mod compile;
+mod ast;
 use token::*;
 use parse::*;
 use bc::*;
@@ -9,6 +11,7 @@ use std::fs::File;
 use std::io::*;
 use std::env;
 use std::process::ExitCode;
+use compile::*;
 
 struct Args {
     bc: bool,
@@ -72,13 +75,17 @@ fn compiler_main() -> usize {
         println!("Parsing failed");
         return 1;
    }
-    let ast = ast.unwrap();
-    println!("AST: {:?}",ast);
+    let pp = ast.unwrap();
+    let prg = pp.get_program();
+    println!("AST: {:?}",*prg);
 
-    let mut vm = VM::new();
-    vm.compile(ast.as_ref());
-    vm.display_bc();
+    let mut bc_comp = compile::CompilePass::new();
+    //let mut vm = VM::new();
+    //vm.compile(ast.as_ref());
+    bc_comp.visit_program(&prg);
+    bc_comp.display_bc();
 
+    let mut vm = VM::new(bc_comp);
     let res = vm.interpret();
     println!("{:?}",res);
     return (res == InterpretResult::OK) as usize;
