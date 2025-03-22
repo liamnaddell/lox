@@ -1,10 +1,9 @@
 use crate::token::*;
 use crate::error::*;
-use std::cmp;
 use std::rc::Rc;
 use crate::ast::*;
+use crate::ast;
 
-type NodeId = u32;
 
 //TODO: Switch out Rc< for lifetime param
 enum AstNode {
@@ -19,7 +18,7 @@ enum AstNode {
     Call(Rc<Call>),
     Binary(Rc<Binary>),
     Assignment(Rc<Assignment>),
-    Expr(Rc<Expr>),
+    Expr(Expr),
     Return(Rc<Return>),
     Stmt(Rc<Stmt>),
     Decl(Rc<Decl>),
@@ -33,7 +32,7 @@ struct AstStore {
     ns: Vec<AstNodeStore>,
 }
 macro_rules! do_shit {
-    ($name: ident, $add:ident,$get:ident) => {
+    ($name: ident, $get:ident,$add:ident) => {
         fn $get(&self, ni: NodeId) -> Rc<$name> {
             let n = &self.ns[ni as usize];
             let AstNode::$name(ref f) = n.n else {
@@ -69,6 +68,7 @@ impl AstStore {
         return self.get_program(pgi as u32);
     }
     fn new() -> Self {
+        return AstStore { ns: vec!() };
     }
 }
 
@@ -128,21 +128,6 @@ impl<'a> TknSlice<'a> {
     }
 }
 
-#[derive(Debug)]
-pub enum UnaryOp {
-    Sub,
-    Neg,
-}
-
-impl UnaryOp {
-    fn from_tkntype(t: &TokenType) -> Option<UnaryOp> {
-        match t {
-            TokenType::Minus => Some(UnaryOp::Sub),
-            TokenType::Bang => Some(UnaryOp::Neg),
-            _ => None
-        }
-    }
-}
 /*
  * COMPILER BUG:
  * FIX: Including And twice results in silly diag error from BinOp (Debug) derive.
@@ -159,39 +144,6 @@ pub enum BinOp {
 }
 */
 
-#[derive(Eq,PartialEq,Debug,Copy,Clone,PartialOrd,Ord)]
-pub enum BinOp {
-    Minus, Plus, Star,
-    BangEqual,
-    EqualEqual,
-    Greater, GreaterEqual,
-    Less, LessEqual,
-    And, Or, Slash
-}
-
-impl BinOp {
-    fn from_tkntype(t: &TokenType) -> Option<BinOp> {
-        match t {
-            TokenType::Minus => Some(BinOp::Minus),
-            TokenType::Plus => Some(BinOp::Plus),
-            TokenType::Slash => Some(BinOp::Slash),
-            TokenType::Star => Some(BinOp::Star),
-            TokenType::BangEqual => Some(BinOp::BangEqual),
-            TokenType::EqualEqual => Some(BinOp::EqualEqual),
-            TokenType::Greater => Some(BinOp::Greater),
-            TokenType::GreaterEqual => Some(BinOp::GreaterEqual),
-            TokenType::Less => Some(BinOp::Less),
-            TokenType::LessEqual => Some(BinOp::LessEqual),
-            TokenType::Or => Some(BinOp::Or),
-            TokenType::And => Some(BinOp::And),
-            _ => None
-        }
-    }
-    fn min() -> BinOp {
-        return cmp::min(BinOp::Minus,BinOp::Or);
-    }
-}
-
 
 
 fn bop_higher_prec(bop:BinOp,maybe_high_prec_bop:BinOp) -> bool {
@@ -199,7 +151,6 @@ fn bop_higher_prec(bop:BinOp,maybe_high_prec_bop:BinOp) -> bool {
 }
 
 pub struct ParsePass {
-    tkns: Vec<Token>,
     ast: AstStore,
 }
 
@@ -282,18 +233,18 @@ impl ParsePass {
             return Err(new_err(ts.loc(i),"Function has no {}"));
         }
         let block = self.parse_block(ts.sub(i+1,ts.end()))?;
-        let fnd = FnDecl::new(0,ts.loc(0), fn_name.clone(),args,block)
+        let fnd = FnDecl::new(ts.loc(0), fn_name.clone(),args,block,0);
         return Ok(self.add_fndecl(fnd));
 
 
     }
 
     //NOTE: removes semicolons
-    fn parse_block(ts: TknSlice) -> Result<Box<Block>> {
+    fn parse_block(&mut self, ts: TknSlice) -> Result<Rc<Block>> {
         //<stmt>;
         //<stmt>;
         //...
-        let mut b = Block::new(0, ts.loc(0), vec!());
+        let mut b = Block::new(ts.loc(0), vec!(),0);
         let mut loc_old = 0;
         let mut loc = 0;
 
@@ -320,11 +271,11 @@ impl ParsePass {
             return Err(new_err(ts.loc(ts.end()),"Unclosed left brace dingus"));
         }
 
-        return Ok(Box::new(b));
+        return Ok(Rc::new(b));
     }
 
 
-    fn parse_vardecl(ts: TknSlice) -> Result<Box<VarDecl>> {
+    fn parse_vardecl(&mut self,ts: TknSlice) -> Result<Rc<VarDecl>> {
         //var <ident> = <expr>
         if ts.size() < 4 {
             return Err(new_err(ts.loc(0),"Emptiness"));
@@ -346,12 +297,12 @@ impl ParsePass {
 
         let expr = self.parse_expr(ts.sub(3,0))?;
 
-        let vd = self.add_vardecl(VarDecl::new(0,  ts.loc(0), iname, expr));
+        let vd = self.add_vardecl(VarDecl::new(ts.loc(0), iname, expr,0));
         return Ok(vd);
     }
 
 
-    fn parse_if(ts: TknSlice) -> Result<Box<If>> {
+    fn parse_if(&mut self,ts: TknSlice) -> Result<Rc<If>> {
         let left_paren = ts.get(1);
 
         if left_paren.tkn_type == TokenType::LeftParen {
@@ -394,17 +345,17 @@ impl ParsePass {
 
                 let or_else = self.parse_stmt(ts.sub(idx,i))?;
 
-                let ify = self.add_if(If::new(0, ts.loc(0), cond, then, Some(or_else)));
+                let ify = self.add_if(If::new(ts.loc(0), cond, then, Some(or_else),0));
                 return Ok(ify);
             }
-            let ify = self.add_if(If::new(0, ts.loc(0), cond, then, None));
+            let ify = self.add_if(If::new(ts.loc(0), cond, then, None,0));
             return Ok(ify);
         }
 
         return Err(new_err(ts.loc(ts.end()),"messed up if statement somehow"));
     }
 
-    fn parse_literal(mut ts: TknSlice) -> Result<Box<Literal>> {
+    fn parse_literal(&mut self, mut ts: TknSlice) -> Result<Rc<Literal>> {
         //Rust blocks which return a Result are basically
         //the same as do blocks in haskell.
         //the ? operator means "Return an error, if pop_or fails",
@@ -439,13 +390,13 @@ impl ParsePass {
                 Err(new_err(0,"expected an identifier, string literal, or number"))?
             }
         };
-        let lt = self.add_literal(Literal::new( 0,maybe_lit.locus,  l));
+        let lt = self.add_literal(Literal::new(maybe_lit.locus, l, 0));
         return Ok(lt);
     }
 
 
 
-    fn parse_unary(mut ts: TknSlice) -> Result<Box<Unary>> {
+    fn parse_unary(&mut self, mut ts: TknSlice) -> Result<Rc<Unary>> {
         let loc = ts.loc(0);
         //should only be called by expr which checks this.
         let op: &TokenType = &ts.pop_or("Expected unary operator")?.tkn_type;
@@ -462,12 +413,11 @@ impl ParsePass {
 
         let sub_expr = self.parse_expr(ts)?;
 
-        //TODO: remove 0
-        let un = self.add_unary(Unary::new(0, una_op, sub_expr, loc))
+        let un = self.add_unary(Unary::new(una_op, sub_expr, loc,0));
         return Ok(un);
     }
 
-    fn parse_expr(mut ts: TknSlice) -> Result<Box<Expr>> {
+    fn parse_expr(&mut self, mut ts: TknSlice) -> Result<Expr> {
         if ts.size() == 0 {
             panic!("I think this should paic now");
             //return Err(new_err(ts.loc(0),"Emptiness"));
@@ -481,20 +431,19 @@ impl ParsePass {
 
         //First try and parse a literal, since it's easy.
         if ts.size() == 1 {
-            //wrong type :(
-            let lit: Box<Literal> = self.parse_literal(ts)?;
+            let lit = self.parse_literal(ts)?;
 
             //this is a move
-            let lit_expr: Box<Expr> = Box::new(Expr::Literal(*lit));
+            let lit_expr: Expr = Expr::Literal(lit);
             return Ok(lit_expr);
         }
 
         //Second, try to parse a unary.
         if ts.size() > 1 && UnaryOp::from_tkntype(&ts.get(0).tkn_type).is_some() {
-            let una: Box<Unary> = self.parse_unary(ts)?;
+            let una: Rc<Unary> = self.parse_unary(ts)?;
 
             //this is a move
-            let una_expr: Box<Expr> = Box::new(Expr::Unary(*una));
+            let una_expr: Expr = Expr::Unary(una);
             return Ok(una_expr);
         }
 
@@ -540,8 +489,8 @@ impl ParsePass {
                 let tse = ts.sub(prison_begin,ts.end());
                 arglist.push(self.parse_expr(tse)?);
             }
-            let c = self.add_call(Call::new(  0,ts.loc(0),fnname.clone(),arglist));
-            return Ok(Box::new(Expr::Call(c)));
+            let c = self.add_call(Call::new(ts.loc(0),fnname.clone(),arglist,0));
+            return Ok(Expr::Call(c));
         }}
 
         //Fourth, try to parse an assignment.
@@ -550,8 +499,8 @@ impl ParsePass {
                 return Err(new_err(ts.loc(0), "LHS of assignment is not identifier"));
             };
             let sub = self.parse_expr(ts.sub(2,0))?;
-            let ass = self.add_assignment(Assignment::new(0,ts.loc(1),fnname.clone(), sub));
-            return Ok(Box::new(Expr::Assignment(ass)));
+            let ass = self.add_assignment(Assignment::new(ts.loc(1),fnname.clone(), sub,0));
+            return Ok(Expr::Assignment(ass));
         }
 
         /*
@@ -562,7 +511,7 @@ impl ParsePass {
         let mut head = ts.end() as isize;
         let mut paren_order = 0;
         //mapping from operator -> location wrt ts.
-        let mut bop = BinOp::min();
+        let mut bop = ast::BinOp::min();
         //no bop.
         let mut bop_loc = 0;
 
@@ -607,15 +556,15 @@ impl ParsePass {
         }
 
         //there was a bin op.
-        let left: Box<Expr> = self.parse_expr(ts.sub(0,bop_loc))?;
-        let right: Box<Expr> = self.parse_expr(ts.sub(bop_loc+1,0))?;
-        let bin = self.add_binary(Binary::new(0,bop_loc,bop,left,right));
-        return Ok(Box::new(Expr::Binary(bin)));
+        let left: Expr = self.parse_expr(ts.sub(0,bop_loc))?;
+        let right: Expr = self.parse_expr(ts.sub(bop_loc+1,0))?;
+        let bin = self.add_binary(Binary::new(bop_loc,bop,left,right,0));
+        return Ok(Expr::Binary(bin));
     }
 
 
     //NOTE: Does !NOT! parse semicolons.
-    fn parse_stmt(ts: TknSlice) -> Result<Box<Stmt>> {
+    fn parse_stmt(&mut self, ts: TknSlice) -> Result<Stmt> {
         if ts.size() == 0 {
             return Err(new_err(ts.loc(0),"Emptiness"));
         }
@@ -624,11 +573,11 @@ impl ParsePass {
         match first.tkn_type {
             TokenType::Print => {
                 let sub = self.parse_expr(ts.sub(1,0))?;
-                let prt = self.add_print(Print::new(0, ts.loc(0),sub));
-                return Ok(Box::new(Stmt::Print(prt))); 
+                let prt = self.add_print(Print::new(ts.loc(0),sub,0));
+                return Ok(Stmt::Print(prt)); 
             },
             TokenType::If => {
-                return Ok(Box::new(Stmt::If(*self.parse_if(ts.sub(0,0))?))); 
+                return Ok(Stmt::If(self.parse_if(ts.sub(0,0))?)); 
             },
             TokenType::While => {
                 return Err(new_err(ts.loc(0),"idk bcs while loop not implemented yet"));
@@ -638,14 +587,14 @@ impl ParsePass {
             },
             _ => {
                 let sub = self.parse_expr(ts.sub(0,0))?;
-                return Ok(Box::new(Stmt::Expr(*sub))); 
+                return Ok(Stmt::Expr(sub)); 
             }
         }
 
     }
 
 
-    fn parse_decl(ts: TknSlice) -> Result<Box<Decl>> {
+    fn parse_decl(&mut self, ts: TknSlice) -> Result<Decl> {
         if ts.size() < 2 {
             return Err(new_err(ts.loc(0),"Emptiness"));
         }
@@ -655,8 +604,7 @@ impl ParsePass {
 
         /*
         if first.tkn_type == TokenType::LeftBrace && last.tkn_type == TokenType::RightBrace {
-            //TODO: ugl line
-            return Ok(Box::new(Decl::Stmt(*self.parse_stmt(ts.sub(1,0))?)));
+            return Ok(Decl::Stmt(*self.parse_stmt(ts.sub(1,0))?));
         }
         */
 
@@ -665,21 +613,18 @@ impl ParsePass {
         }
 
         if first.tkn_type == TokenType::Fun {
-            //strip semicolon TODO: Uggo line
-            return Ok(Box::new(Decl::FnDecl(*self.parse_fndecl(ts.sub(0,ts.end()))?)));
+            return Ok(Decl::FnDecl(self.parse_fndecl(ts.sub(0,ts.end()))?));
         }
         if first.tkn_type == TokenType::Var {
-            return Ok(Box::new(Decl::VarDecl(*self.parse_vardecl(ts.sub(0,ts.end()))?)));
+            return Ok(Decl::VarDecl(self.parse_vardecl(ts.sub(0,ts.end()))?));
         }
 
-
-        //TODO: uggo line
-        return Ok(Box::new(Decl::Stmt(*self.parse_stmt(ts.sub(0,ts.end()))?)));
+        return Ok(Decl::Stmt(self.parse_stmt(ts.sub(0,ts.end()))?));
     }
 
 
     //NOTE: Does !NOT! eat semicolons.
-    fn parse_program(ts: TknSlice) -> Result<Box<Program>> {
+    fn parse_program(&mut self, ts: TknSlice) -> Result<Rc<Program>> {
         /*
          * loop through tokens, and break out decls.
          * decls can have two types
@@ -723,30 +668,35 @@ impl ParsePass {
             loc += 1;
         }
         let pp = self.add_program(p);
-        return Ok(Box::new(p));
+        return Ok(pp);
     }
-    fn new(tkns: Vec<Token>) -> Self {
-        return(ParsePass {tkns: tkns, ast: AstStore::new() });
+    fn new() -> Self {
+        return ParsePass {ast: AstStore::new() };
     }
 
-    fn parse(&mut self) -> Option<Self> {
+    fn parse(&mut self,tkns: Vec<Token>) {
         let tkn_slice = TknSlice { tkns: &tkns, start: 0, end: tkns.len() };
 
         let maybe_expr = self.parse_program(tkn_slice);
 
         if let Err(e) = maybe_expr {
             e.emit();
-            return None;
         }
-
-        return Some(*self);
     }
     pub fn get_program(&self) -> Rc<Program> {
         return self.ast.get_root();
     }
+    pub fn success(&self) -> bool {
+        unimplemented!();
+    }
 }
 
 pub fn parse(tkns: Vec<Token>) -> Option<ParsePass> {
-    let mut pp = ParsePass::new(tkns);
-    return pp.parse();
+    let mut pp = ParsePass::new();
+    pp.parse(tkns);
+    if pp.success() {
+        return Some(pp);
+    } else {
+        return None;
+    }
 }
