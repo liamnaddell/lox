@@ -152,13 +152,15 @@ fn bop_higher_prec(bop:BinOp,maybe_high_prec_bop:BinOp) -> bool {
 
 pub struct ParsePass {
     ast: AstStore,
+    success: bool,
 }
 
 macro_rules! bloob {
     ($name: ident,$ty: ident) => {
         fn $name(&mut self, a: $ty) -> Rc<$ty> {
-            let b = Rc::new(a);
-            return b.clone();
+            //something like "add_$ty"
+            let rv = self.ast.$name(a);
+            return rv;
         }
     }
 }
@@ -671,7 +673,7 @@ impl ParsePass {
         return Ok(pp);
     }
     fn new() -> Self {
-        return ParsePass {ast: AstStore::new() };
+        return ParsePass {ast: AstStore::new(), success: false };
     }
 
     fn parse(&mut self,tkns: Vec<Token>) {
@@ -681,13 +683,16 @@ impl ParsePass {
 
         if let Err(e) = maybe_expr {
             e.emit();
+        } else {
+            self.success = true;
         }
     }
     pub fn get_program(&self) -> Rc<Program> {
+        assert!(self.success);
         return self.ast.get_root();
     }
     pub fn success(&self) -> bool {
-        unimplemented!();
+        return self.success;
     }
 }
 
