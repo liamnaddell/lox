@@ -3,35 +3,6 @@ use std::collections::HashMap;
 use crate::ast::*;
 use crate::ast;
 
-/**
- * Couldn't really come up with a better name...
- * It cooks something at each level of the ast
- *
- * It could either recurse on its own, or it could rely on another
- * struct for recursion, i.e. it calls visit_function at a function, etc.
- */
-pub trait AstCooker {
-    fn visit_function(&mut self, _: &FnDecl) { }
-    fn visit_block(&mut self, _: &Block) { }
-    #[allow(dead_code)]
-    fn visit_print(&mut self, _: &Print) { }
-    fn visit_var(&mut self, _: &VarDecl) { }
-    fn visit_if(&mut self, _: &If) { }
-    #[allow(dead_code)]
-    fn visit_while(&mut self, _: &While) { }
-    fn visit_literal(&mut self,_:  &Literal) { }
-    fn visit_unary(&mut self, _: &Unary) { }
-    fn visit_call(&mut self, _: &Call) { }
-    fn visit_binary(&mut self, _: &Binary) { }
-    fn visit_assignment(&mut self, _: &Assignment) { }
-    fn visit_expr(&mut self, _: &Expr) { }
-    fn visit_stmt(&mut self, _: &Stmt) { }
-    fn visit_decl(&mut self, _: &ast::Decl) { }
-    #[allow(dead_code)]
-    fn visit_return(&mut self, _: &Return) { }
-    fn visit_program(&mut self, _: &Program) { }
-    fn visit_class(&mut self, _: &ClassDecl) { }
-}
 
 #[derive(Clone,Copy)]
 struct Decl {
