@@ -1,7 +1,7 @@
-use crate::parse::*;
 use crate::bc::*;
 use std::collections::HashMap;
-use crate::parse;
+use crate::ast::*;
+use crate::ast;
 
 /**
  * Couldn't really come up with a better name...
@@ -26,7 +26,7 @@ pub trait AstCooker {
     fn visit_assignment(&mut self, _: &Assignment) { }
     fn visit_expr(&mut self, _: &Expr) { }
     fn visit_stmt(&mut self, _: &Stmt) { }
-    fn visit_decl(&mut self, _: &parse::Decl) { }
+    fn visit_decl(&mut self, _: &ast::Decl) { }
     #[allow(dead_code)]
     fn visit_return(&mut self, _: &Return) { }
     fn visit_program(&mut self, _: &Program) { }
@@ -296,7 +296,7 @@ impl AstCooker for CompilePass {
         todo!();
     }
      fn visit_literal(&mut self, l: &Literal) { 
-        use LitKind::*;
+        use ast::LitKind::*;
         let ch = current_chunk!(self);
         match l.kind {
             StringLit(ref s) => {
@@ -436,18 +436,18 @@ impl AstCooker for CompilePass {
             _ => { todo!() }
         }
     }
-     fn visit_decl(&mut self, d: &parse::Decl) {
+     fn visit_decl(&mut self, d: &ast::Decl) {
         match d {
-            parse::Decl::Stmt(ref s) => {
+            ast::Decl::Stmt(ref s) => {
                 self.visit_stmt(s);
             }
-            parse::Decl::VarDecl(ref b) => {
+            ast::Decl::VarDecl(ref b) => {
                 self.visit_var(b);
             }
-            parse::Decl::FnDecl(ref fnd) => {
+            ast::Decl::FnDecl(ref fnd) => {
                 self.visit_function(fnd);
             }
-            parse::Decl::ClassDecl(ref fnd) => {
+            ast::Decl::ClassDecl(ref fnd) => {
                 self.visit_class(fnd);
             }
         }

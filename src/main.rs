@@ -3,6 +3,7 @@ mod parse;
 mod error;
 mod bc;
 mod compile;
+mod ast;
 use token::*;
 use parse::*;
 use bc::*;
@@ -74,13 +75,14 @@ fn compiler_main() -> usize {
         println!("Parsing failed");
         return 1;
    }
-    let ast = ast.unwrap();
-    println!("AST: {:?}",ast);
+    let pp = ast.unwrap();
+    let prg = pp.get_program();
+    println!("AST: {:?}",*prg);
 
     let mut bc_comp = compile::CompilePass::new();
     //let mut vm = VM::new();
     //vm.compile(ast.as_ref());
-    bc_comp.visit_program(&ast);
+    bc_comp.visit_program(&prg);
     bc_comp.display_bc();
 
     let mut vm = VM::new(bc_comp);
