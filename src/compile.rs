@@ -1,89 +1,7 @@
 use crate::bc::*;
-use std::collections::HashMap;
 use crate::ast::*;
 use crate::ast;
-
-/**
- * Couldn't really come up with a better name...
- * It cooks something at each level of the ast
- *
- * It could either recurse on its own, or it could rely on another
- * struct for recursion, i.e. it calls visit_function at a function, etc.
- */
-pub trait AstCooker {
-    fn visit_function(&mut self, _: &FnDecl) { }
-    fn visit_block(&mut self, _: &Block) { }
-    #[allow(dead_code)]
-    fn visit_print(&mut self, _: &Print) { }
-    fn visit_var(&mut self, _: &VarDecl) { }
-    fn visit_if(&mut self, _: &If) { }
-    #[allow(dead_code)]
-    fn visit_while(&mut self, _: &While) { }
-    fn visit_literal(&mut self,_:  &Literal) { }
-    fn visit_unary(&mut self, _: &Unary) { }
-    fn visit_call(&mut self, _: &Call) { }
-    fn visit_binary(&mut self, _: &Binary) { }
-    fn visit_assignment(&mut self, _: &Assignment) { }
-    fn visit_expr(&mut self, _: &Expr) { }
-    fn visit_stmt(&mut self, _: &Stmt) { }
-    fn visit_decl(&mut self, _: &ast::Decl) { }
-    #[allow(dead_code)]
-    fn visit_return(&mut self, _: &Return) { }
-    fn visit_program(&mut self, _: &Program) { }
-    fn visit_class(&mut self, _: &ClassDecl) { }
-}
-
-#[derive(Clone,Copy)]
-struct Decl {
-    //friendly reminder: no decl may have id 0
-    decl_id: u64,
-    scope: u8,
-}
-struct CTStack {
-    decls: [Decl;u8::MAX as usize],
-    //lexical scope depth
-    current_depth: u8,
-    tip: u8,
-}
-
-impl CTStack {
-    fn new() -> CTStack {
-        return CTStack {decls: [Decl {decl_id:0,scope:0};255], tip: 0, current_depth: 0};
-    }
-    fn push_frame(&mut self) {
-        self.current_depth += 1;
-    }
-    fn pop_frame(&mut self) {
-        assert!(self.current_depth != 0);
-        for i in (0..(self.tip as usize)).rev() {
-            assert!(self.decls[i].decl_id != 0);
-            if self.decls[i].scope != self.current_depth {
-                break;
-            }
-            self.decls[i].decl_id = 0;
-            assert!(self.tip != 0);
-            self.tip -= 1;
-        }
-        self.current_depth -= 1;
-    }
-    fn add_decl(&mut self, d:u64) -> u8 {
-        assert!(self.decls[self.tip as usize].decl_id == 0);
-        self.decls[self.tip as usize].decl_id = d;
-        self.decls[self.tip as usize].scope = self.current_depth;
-        let ret = self.tip;
-        self.tip += 1;
-        return ret;
-    }
-    fn get_stack_offset_of_decl(&self, d:u64) -> Option<(u8,Decl)> {
-        let end = self.tip as usize;
-        for i in (0..end).rev() {
-            if self.decls[i].decl_id == d {
-                return Some((i as u8,self.decls[i]));
-            }
-        }
-        return None;
-    }
-}
+use crate::vpass;
 
 pub struct CompilePass {
     pub cnks: Vec<Chunk>,
@@ -97,12 +15,6 @@ pub struct CompilePass {
 
     /** used for allocating ct_name_to_id slots */
     next_id: u64,
-    /**A bijection of variable/function names and their associated id's */
-    ct_name_to_id: HashMap<String,u64>,
-    /** A mapping from variable id to index in the `globals` array */
-    ct_global_id_to_index: HashMap<u64,usize>,
-    ct_stack: CTStack,
-
 }
 macro_rules! current_chunk {
     ($self:ident) => { &mut $self.cnks[$self.current_chunk] }
@@ -113,10 +25,7 @@ impl CompilePass {
         let func = Function { chunk: 0, arity: 0 };
         return CompilePass {
             cnks: vec!(cc),
-            ct_name_to_id:HashMap::new(),
-            ct_global_id_to_index: HashMap::new(),
             globals:vec!(),
-            ct_stack: CTStack::new(),
             current_chunk:0,
             funcs: vec!(func),
             next_id:1
@@ -160,114 +69,72 @@ impl CompilePass {
             println!("<func #{} {} {}",i,func,ch);
         }
     }
-    pub fn ct_push_scope(&mut self) {
-        self.ct_stack.push_frame();
-    }
-    pub fn ct_pop_scope(&mut self) {
-        self.ct_stack.pop_frame();
-    }
-    pub fn ct_add_decl(&mut self, d:u64) -> u8 {
-        return self.ct_stack.add_decl(d);
-    }
-    fn ct_get_stack_offset_of_decl(&self, d:u64) -> Option<(u8,Decl)> {
-        return self.ct_stack.get_stack_offset_of_decl(d);
-    }
-    pub fn ct_get_id_of_var(&mut self, name: &str) -> u64 {
-        let v = self.ct_name_to_id.get(name);
-        if let Some(id) = v {
-            return *id;
-        }
-
-        let id = self.next_id;
-        self.next_id+=1;
-
-        self.ct_name_to_id.insert(name.to_string(),id);
-        return id;
-    }
-    pub fn ct_get_function_index(&mut self, name: &str) -> Option<usize> {
-        let id = self.ct_get_id_of_var(name);
-        let index = self.ct_get_global_index(id);
-        return index;
-    }
-
-    pub fn ct_get_global_index(&self, id:u64) -> Option<usize> {
-        let v = self.ct_global_id_to_index.get(&id);
-        return v.copied();
-    }
-    pub fn ct_add_function(&mut self, name: String, func: Function) {
+    pub fn ct_add_function(&mut self, _name: String, func: Function) {
         self.funcs.push(func);
-        let id = self.ct_get_id_of_var(&name);
-        let ind = self.funcs.len() - 1;
-        //TODO: lol
-        self.ct_global_id_to_index.insert(id, ind);
     }
 
-    pub fn emit_create_var(&mut self, var_name: &str) {
-        let id = self.ct_get_id_of_var(var_name);
-        //NOTE: Technically not useful for global variables...
-        let ofs = self.ct_add_decl(id);
+    pub fn emit_create_var(&mut self, v: &VarDecl) {
         let ch = current_chunk!(self);
-        if self.ct_stack.current_depth == 0 {
+        let vp = vpass::get_vpass();
+        let var_def = vp.get_def(v.nodeid);
+
+        if var_def.is_global() {
             //global var
-            let index = self.globals.len();
-            let old_value = self.ct_global_id_to_index.insert(id,index);
-            //TODO: Error handling.
-            assert!(old_value == None);
-            ch.add_set_global(index);
+            let index = var_def.stack_location;
+            ch.add_set_global(index as usize);
+        } else if var_def.is_local() {
+            // We analyzed in the variable pass where this definition will be placed on the stack.
+            ch.add_set_local(var_def.stack_location as u8);
         } else {
-            //local var
-            ch.add_set_local(ofs);
+            //upvalue
+            todo!();
         }
     }
 
-    pub fn emit_get_var(&mut self,var_name: &str) {
-        let id = self.ct_get_id_of_var(var_name);
-        let (ofs,decl) = self.ct_get_stack_offset_of_decl(id).expect("ICE: reference to id which does not exist");
-        if decl.scope == 0 {
-            let index = self.ct_get_global_index(id).expect("ICE");
+    pub fn emit_get_var(&mut self,v: &ast::Literal) {
+        let vp = vpass::get_vpass();
+        let (var_use,var_def) = vp.get_usage(v.nodeid);
+
+        if var_use.is_global() {
+            let index = var_def.stack_location;
             let ch = current_chunk!(self);
-            ch.add_get_global(index);
+            ch.add_get_global(index as usize);
             return;
         }
+        //not implemented
+        assert!(var_use.is_local());
         let ch = current_chunk!(self);
-        ch.add_get_local(ofs);
+        ch.add_get_local(var_def.stack_location as u8);
     }
 }
 impl AstCooker for CompilePass {
     fn visit_function(&mut self, f: &FnDecl) { 
         let name = f.name.clone();
         let current_fn = self.current_chunk;
+        //NOTE: We don't have to do anything for variables, since they will be pushed onto the
+        //stack by the caller.
         let cnk_no = self.add_new_chunk();
-        self.ct_push_scope();
-        for arg in &f.args {
-            //we don't actually SET the variable, just DECLARE it since it's on the STACK
-            //self.emit_create_var(&mut sub_cnk,&arg);
-            let id = self.ct_get_id_of_var(&arg);
-            //lmao
-            let _ofs = self.ct_add_decl(id);
-        }
+        let func = Function { chunk:cnk_no, arity: f.args.len()};
+        self.ct_add_function(name,func);
+
         self.visit_block(&f.fn_def);
         let sub_cnk = current_chunk!(self);
         sub_cnk.add_return();
 
-        let func = Function { chunk:cnk_no, arity: f.args.len()};
 
-        self.ct_pop_scope();
         //TODO: This is complete spaghet
         self.current_chunk = current_fn;
-        self.ct_add_function(name,func);
     }
      fn visit_block(&mut self, b: &Block) { 
-        self.ct_push_scope();
         for stmt in &b.decls {
             self.visit_decl(stmt);
         }
-        self.ct_pop_scope();
     }
+     //TODO: Rework this to using recurse_*
      fn visit_print(&mut self, _: &Print) { todo!(); }
      fn visit_var(&mut self, v:&VarDecl) { 
         self.visit_expr(&v.value);
-        self.emit_create_var(&v.name);
+        self.emit_create_var(v);
     }
      fn visit_if(&mut self, i: &If) { 
         // emit expr:
@@ -302,8 +169,8 @@ impl AstCooker for CompilePass {
             StringLit(ref s) => {
                 ch.add_const_str(s);
             }
-            Identifier(ref i) => {
-                self.emit_get_var(i);
+            Identifier(ref _i) => {
+                self.emit_get_var(l);
             }
             NumberLit(num) => {
                 ch.add_const_num(num);
@@ -335,10 +202,10 @@ impl AstCooker for CompilePass {
         }
     }
      fn visit_call(&mut self, c: &Call) { 
-        let findex = self.ct_get_function_index(&c.fn_name);
-        let Some(findex) = findex else {
-            panic!("ya that function doesnt exist buddy");
-        };
+        let vp = vpass::get_vpass();
+        let (var_use,var_def) = vp.get_usage(c.nodeid);
+        let findex = var_def.stack_location as usize;
+
         let funct = &self.funcs[findex];
         if c.args.len() != funct.arity {
             panic!("Arity mismatch :/, expected {} args got {}  now i die", funct.arity,c.args.len());
@@ -377,23 +244,22 @@ impl AstCooker for CompilePass {
      fn visit_assignment(&mut self, a: &Assignment) { 
         self.visit_expr(&a.val_expr);
 
-        assert!(false);
-        let id = self.ct_get_id_of_var(&a.var_name);
-        let Some((ofs,decl)) = self.ct_get_stack_offset_of_decl(id) else {
-            assert!(false,"TODO: Error handling");
-            return;
-        };
-        if decl.scope == 0 {
-            let index = self.ct_get_global_index(id).expect("ICE");
+        let vp = vpass::get_vpass();
+        let (var_use,var_def) = vp.get_usage(a.nodeid);
+        //let id = self.ct_get_id_of_var(&a.var_name);
+        let ofs = var_def.stack_location;
+
+        if var_use.is_global() {
+            let index = ofs;
             let ch=current_chunk!(self);
-            ch.add_set_global(index);
+            ch.add_set_global(index as usize);
             //exprs must return something.
-            ch.add_get_global(index);
+            ch.add_get_global(index as usize);
             return;
         }
         let ch=current_chunk!(self);
-        ch.add_set_local(ofs);
-        ch.add_get_local(ofs);
+        ch.add_set_local(ofs as u8);
+        ch.add_get_local(ofs as u8);
     }
      fn visit_expr(&mut self, e: &Expr) {
         match e {
