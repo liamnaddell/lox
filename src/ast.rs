@@ -59,18 +59,37 @@ pub struct For;
 
 pub type NodeId = u32;
 
+/**
+ * An argument to a function.
+ * Used only as part of a function *declaration* not use
+ */
+#[derive(Debug)]
+pub struct FnArg {
+    pub arg_name: String,
+    pub nodeid: NodeId,
+}
+
+impl FnArg {
+    pub fn new(arg_name: String, nodeid: NodeId) -> Self {
+        FnArg {
+            arg_name,
+            nodeid
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct FnDecl {
     #[allow(dead_code)]
     pub locus: usize,
     pub name: String,
-    pub args: Vec<String>,
+    pub args: Vec<Rc<FnArg>>,
     pub fn_def: Rc<Block>,
     pub nodeid: NodeId,
 }
 
 impl FnDecl {
-    pub fn new(locus: usize, name: String, args: Vec<String>, fn_def: Rc<Block>, nodeid: NodeId) -> FnDecl {
+    pub fn new(locus: usize, name: String, args: Vec<Rc<FnArg>>, fn_def: Rc<Block>, nodeid: NodeId) -> FnDecl {
         FnDecl { locus, name, args, fn_def, nodeid }
     }
 }
@@ -217,11 +236,6 @@ impl Assignment {
 }
 
 
-impl Return {
-    pub fn new(locus: usize, nodeid: NodeId) -> Return {
-        Return { locus, nodeid }
-    }
-}
 
 #[derive(Debug)]
 pub struct Program {
@@ -266,6 +280,12 @@ pub struct Return {
     pub nodeid: NodeId,
 }
 
+impl Return {
+    pub fn new(locus: usize, nodeid: NodeId) -> Return {
+        Return { locus, nodeid }
+    }
+}
+
 #[derive(Debug)]
 pub enum Expr {
     Literal(Rc<Literal>),
@@ -279,9 +299,9 @@ pub enum Expr {
 pub enum Stmt {
     Print(Rc<Print>),
     If(Rc<If>),
+    #[allow(dead_code)]
     While(Rc<While>),
     Expr(Expr),
-    For(Rc<For>),
     Return(Rc<Return>),
     Block(Rc<Block>), 
 }
@@ -292,4 +312,163 @@ pub enum Decl {
     FnDecl(Rc<FnDecl>), 
     VarDecl(Rc<VarDecl>), 
     Stmt(Stmt), 
+}
+
+/**
+ * This Trait is used for defining a compiler pass.
+ * A compiler pass is a `struct` that collects or produces information
+ *  about an AST.
+ *
+ * For example, the `compile` pass produces bytecode from an AST.
+ * For another example, the `vpass` generates information about the AST,
+ *  specfically by solving for name resolution.
+ *
+ * This trait is divided into two kinds of functions. The `visit_*` functions,
+ *  and the `recurse_*` functions.
+ *
+ * The `visit_*` functions are meant to be overridden by the AST pass in question.
+ * For example, the `compile` pass will override `visit_function` to compile the
+ *  function.
+ *
+ * The `recurse_*` functions are meant to provide a mechanism to recurse into the
+ *  subnodes of the AST. For example, `recurse_function` will recurse into the 
+ *  function body.
+ *
+ * By default, the `visit_*` functions simply run `recurse_*` functions. When you
+ *  override these functions, you should call the appropriate `recurse_*` function
+ *  in order to reach every node.
+ */
+pub trait AstCooker {
+    // By default, we just recurse. If you override one of these functions,
+    // make sure to call recurse_x to keep recursing!
+    fn visit_function(&mut self, f: &FnDecl) { self.recurse_function(f); }
+    fn visit_block(&mut self, b: &Block) { self.recurse_block(b); }
+    fn visit_print(&mut self, p: &Print) { self.recurse_print(p); }
+    fn visit_var(&mut self, v: &VarDecl) { self.recurse_var(v); }
+    fn visit_if(&mut self, i: &If) { self.recurse_if(i); }
+    fn visit_while(&mut self, w: &While) { self.recurse_while(w); }
+    fn visit_literal(&mut self, _: &Literal) {}
+    fn visit_unary(&mut self, u: &Unary) { self.recurse_unary(u); }
+    fn visit_call(&mut self, c: &Call) { self.recurse_call(c); }
+    fn visit_binary(&mut self, b: &Binary) { self.recurse_binary(b); }
+    fn visit_assignment(&mut self, a: &Assignment) { self.recurse_assignment(a); }
+    fn visit_expr(&mut self, e: &Expr) { self.recurse_expr(e); }
+    fn visit_stmt(&mut self, s: &Stmt) { self.recurse_stmt(s); }
+    fn visit_decl(&mut self, d: &Decl) { self.recurse_decl(d); }
+    fn visit_return(&mut self, r: &Return) { self.recurse_return(r); }
+    fn visit_program(&mut self, p: &Program) { self.recurse_program(p); }
+    fn visit_class(&mut self, c: &ClassDecl) { self.recurse_class(c); }
+
+    /* Default visitor functions, should not be overridden */
+    fn recurse_function(&mut self, f: &FnDecl) {
+        //We don't visit block because function "Blocks"
+        //are a logical storage unit but do not open a new scope.
+        //self.visit_block(&f.fn_def)
+        for d in f.fn_def.decls.iter() {
+            self.visit_decl(d);
+        }
+    }
+    fn recurse_block(&mut self, b: &Block) {
+        for d in b.decls.iter() {
+            self.visit_decl(d);
+        }
+    }
+    fn recurse_print(&mut self, p: &Print) {
+        self.visit_expr(&p.to_print);
+    }
+    fn recurse_var(&mut self, v: &VarDecl) {
+        self.visit_expr(&v.value);
+    }
+    fn recurse_if(&mut self, i: &If) {
+        self.visit_expr(&i.cond);
+        self.visit_stmt(&i.then);
+        if let Some(or) = &i.or_else {
+            self.visit_stmt(&or);
+        }
+    }
+    fn recurse_while(&mut self, w: &While) {
+        self.visit_expr(&w.is_true);
+        self.visit_block(&w.do_block);
+    }
+    fn recurse_unary(&mut self, u: &Unary) {
+        self.visit_expr(&u.sub);
+    }
+    fn recurse_call(&mut self, c: &Call) {
+        for arg in c.args.iter() {
+            self.visit_expr(arg);
+        }
+    }
+    fn recurse_binary(&mut self, b: &Binary) {
+        self.visit_expr(&b.left);
+        self.visit_expr(&b.right);
+    }
+    fn recurse_assignment(&mut self, a: &Assignment) {
+        self.visit_expr(&a.val_expr);
+    }
+    fn recurse_expr(&mut self, e: &Expr) {
+        match e {
+            Expr::Literal(l) => {
+                self.visit_literal(l);
+            }
+            Expr::Unary(u) => {
+                self.visit_unary(u);
+            }
+            Expr::Call(c) => {
+                self.visit_call(c);
+            }
+            Expr::Binary(b) => {
+                self.visit_binary(b);
+            }
+            Expr::Assignment(a) => {
+                self.visit_assignment(a);
+            }
+        }
+    }
+    fn recurse_stmt(&mut self, s: &Stmt) {
+        match s {
+            Stmt::Print(p) => {
+                self.visit_print(p);
+            }
+            Stmt::If(i) => {
+                self.visit_if(i);
+            }
+            Stmt::While(w) => {
+                self.visit_while(w);
+            }
+            Stmt::Expr(e) => {
+                self.visit_expr(e);
+            }
+            Stmt::Return(r) => {
+                self.visit_return(r);
+            }
+            Stmt::Block(b) => {
+                self.visit_block(b);
+            }
+        }
+    }
+    fn recurse_decl(&mut self, d: &Decl) {
+        match d {
+            Decl::ClassDecl(c) => {
+                self.visit_class(c);
+            }
+            Decl::FnDecl(f) => {
+                self.visit_function(f);
+            }
+            Decl::VarDecl(v) => {
+                self.visit_var(v);
+            }
+            Decl::Stmt(s) => {
+                self.visit_stmt(s);
+            }
+        }
+    }
+    fn recurse_return(&mut self, _: &Return) { todo!(); }
+    fn recurse_program(&mut self, p: &Program) {
+        for d in p.decls.iter() {
+            self.visit_decl(d);
+        }
+    }
+    fn recurse_class(&mut self, _: &ClassDecl) {
+        todo!();
+    }
 }
