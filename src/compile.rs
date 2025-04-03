@@ -1,9 +1,10 @@
 use crate::bc::*;
-use std::collections::HashMap;
 use crate::ast::*;
 use crate::ast;
+use crate::vpass;
 
 
+/*
 #[derive(Clone,Copy)]
 struct Decl {
     //friendly reminder: no decl may have id 0
@@ -55,6 +56,7 @@ impl CTStack {
         return None;
     }
 }
+*/
 
 pub struct CompilePass {
     pub cnks: Vec<Chunk>,
@@ -68,11 +70,9 @@ pub struct CompilePass {
 
     /** used for allocating ct_name_to_id slots */
     next_id: u64,
-    /**A bijection of variable/function names and their associated id's */
-    ct_name_to_id: HashMap<String,u64>,
-    /** A mapping from variable id to index in the `globals` array */
-    ct_global_id_to_index: HashMap<u64,usize>,
-    ct_stack: CTStack,
+    //**A bijection of variable/function names and their associated id's */
+    //ct_name_to_id: HashMap<String,u64>,
+    //ct_stack: CTStack,
 
 }
 macro_rules! current_chunk {
@@ -84,10 +84,10 @@ impl CompilePass {
         let func = Function { chunk: 0, arity: 0 };
         return CompilePass {
             cnks: vec!(cc),
-            ct_name_to_id:HashMap::new(),
-            ct_global_id_to_index: HashMap::new(),
+            //ct_name_to_id:HashMap::new(),
+            //ct_global_id_to_index: HashMap::new(),
             globals:vec!(),
-            ct_stack: CTStack::new(),
+            //ct_stack: CTStack::new(),
             current_chunk:0,
             funcs: vec!(func),
             next_id:1
@@ -131,6 +131,7 @@ impl CompilePass {
             println!("<func #{} {} {}",i,func,ch);
         }
     }
+    /*
     pub fn ct_push_scope(&mut self) {
         self.ct_stack.push_frame();
     }
@@ -165,43 +166,43 @@ impl CompilePass {
         let v = self.ct_global_id_to_index.get(&id);
         return v.copied();
     }
-    pub fn ct_add_function(&mut self, name: String, func: Function) {
+    */
+    pub fn ct_add_function(&mut self, _name: String, func: Function) {
         self.funcs.push(func);
-        let id = self.ct_get_id_of_var(&name);
-        let ind = self.funcs.len() - 1;
-        //TODO: lol
-        self.ct_global_id_to_index.insert(id, ind);
     }
 
-    pub fn emit_create_var(&mut self, var_name: &str) {
-        let id = self.ct_get_id_of_var(var_name);
-        //NOTE: Technically not useful for global variables...
-        let ofs = self.ct_add_decl(id);
+    pub fn emit_create_var(&mut self, v: &VarDecl) {
         let ch = current_chunk!(self);
-        if self.ct_stack.current_depth == 0 {
+        let vp = vpass::get_vpass();
+        let (var_use,var_def) = vp.get_usage(v.nodeid);
+
+        if var_use.is_global() {
             //global var
-            let index = self.globals.len();
-            let old_value = self.ct_global_id_to_index.insert(id,index);
-            //TODO: Error handling.
-            assert!(old_value == None);
-            ch.add_set_global(index);
+            let index = var_def.stack_location;
+            ch.add_set_global(index as usize);
+        } else if var_use.is_local() {
+            // We analyzed in the variable pass where this definition will be placed on the stack.
+            ch.add_set_local(var_def.stack_location as u8);
         } else {
-            //local var
-            ch.add_set_local(ofs);
+            //upvalue
+            todo!();
         }
     }
 
-    pub fn emit_get_var(&mut self,var_name: &str) {
-        let id = self.ct_get_id_of_var(var_name);
-        let (ofs,decl) = self.ct_get_stack_offset_of_decl(id).expect("ICE: reference to id which does not exist");
-        if decl.scope == 0 {
-            let index = self.ct_get_global_index(id).expect("ICE");
+    pub fn emit_get_var(&mut self,v: &ast::Literal) {
+        let vp = vpass::get_vpass();
+        let (var_use,var_def) = vp.get_usage(v.nodeid);
+
+        if var_use.is_global() {
+            let index = var_def.stack_location;
             let ch = current_chunk!(self);
-            ch.add_get_global(index);
+            ch.add_get_global(index as usize);
             return;
         }
+        //not implemented
+        assert!(var_use.is_upvalue());
         let ch = current_chunk!(self);
-        ch.add_get_local(ofs);
+        ch.add_get_local(var_def.stack_location as u8);
     }
 }
 impl AstCooker for CompilePass {
@@ -209,7 +210,8 @@ impl AstCooker for CompilePass {
         let name = f.name.clone();
         let current_fn = self.current_chunk;
         let cnk_no = self.add_new_chunk();
-        self.ct_push_scope();
+        /*
+         * TODO: WTF THIS ACC NOT REQUIRED AT ALL NOW!!!
         for arg in &f.args {
             //we don't actually SET the variable, just DECLARE it since it's on the STACK
             //self.emit_create_var(&mut sub_cnk,&arg);
@@ -217,28 +219,28 @@ impl AstCooker for CompilePass {
             //lmao
             let _ofs = self.ct_add_decl(id);
         }
+        */
         self.visit_block(&f.fn_def);
         let sub_cnk = current_chunk!(self);
         sub_cnk.add_return();
 
         let func = Function { chunk:cnk_no, arity: f.args.len()};
 
-        self.ct_pop_scope();
+        //self.ct_pop_scope();
         //TODO: This is complete spaghet
         self.current_chunk = current_fn;
         self.ct_add_function(name,func);
     }
      fn visit_block(&mut self, b: &Block) { 
-        self.ct_push_scope();
         for stmt in &b.decls {
             self.visit_decl(stmt);
         }
-        self.ct_pop_scope();
     }
+     //TODO: Rework this to using recurse_*
      fn visit_print(&mut self, _: &Print) { todo!(); }
      fn visit_var(&mut self, v:&VarDecl) { 
         self.visit_expr(&v.value);
-        self.emit_create_var(&v.name);
+        self.emit_create_var(v);
     }
      fn visit_if(&mut self, i: &If) { 
         // emit expr:
@@ -273,8 +275,8 @@ impl AstCooker for CompilePass {
             StringLit(ref s) => {
                 ch.add_const_str(s);
             }
-            Identifier(ref i) => {
-                self.emit_get_var(i);
+            Identifier(ref _i) => {
+                self.emit_get_var(l);
             }
             NumberLit(num) => {
                 ch.add_const_num(num);
@@ -305,7 +307,9 @@ impl AstCooker for CompilePass {
             }
         }
     }
-     fn visit_call(&mut self, c: &Call) { 
+     fn visit_call(&mut self, _c: &Call) { 
+         todo!();
+         /*
         let findex = self.ct_get_function_index(&c.fn_name);
         let Some(findex) = findex else {
             panic!("ya that function doesnt exist buddy");
@@ -324,6 +328,7 @@ impl AstCooker for CompilePass {
             //we gotta pop these bad boys off the stack once we are done.
             ch.add_pop();
         }
+         */
     }
      fn visit_binary(&mut self, b: &Binary) { 
         use BinOp::*;
@@ -349,22 +354,22 @@ impl AstCooker for CompilePass {
         self.visit_expr(&a.val_expr);
 
         assert!(false);
-        let id = self.ct_get_id_of_var(&a.var_name);
-        let Some((ofs,decl)) = self.ct_get_stack_offset_of_decl(id) else {
-            assert!(false,"TODO: Error handling");
-            return;
-        };
-        if decl.scope == 0 {
-            let index = self.ct_get_global_index(id).expect("ICE");
+        let vp = vpass::get_vpass();
+        let (var_use,var_def) = vp.get_usage(a.nodeid);
+        //let id = self.ct_get_id_of_var(&a.var_name);
+        let ofs = var_def.stack_location;
+
+        if var_use.is_global() {
+            let index = ofs;
             let ch=current_chunk!(self);
-            ch.add_set_global(index);
+            ch.add_set_global(index as usize);
             //exprs must return something.
-            ch.add_get_global(index);
+            ch.add_get_global(index as usize);
             return;
         }
         let ch=current_chunk!(self);
-        ch.add_set_local(ofs);
-        ch.add_get_local(ofs);
+        ch.add_set_local(ofs as u8);
+        ch.add_get_local(ofs as u8);
     }
      fn visit_expr(&mut self, e: &Expr) {
         match e {

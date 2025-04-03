@@ -4,6 +4,7 @@ mod error;
 mod bc;
 mod compile;
 mod ast;
+mod vpass;
 use token::*;
 use parse::*;
 use bc::*;
@@ -11,7 +12,7 @@ use std::fs::File;
 use std::io::*;
 use std::env;
 use std::process::ExitCode;
-use compile::*;
+use crate::ast::AstCooker;
 
 struct Args {
     bc: bool,
@@ -78,6 +79,7 @@ fn compiler_main() -> usize {
     let pp = ast.unwrap();
     let prg = pp.get_program();
     println!("AST: {:?}",*prg);
+    vpass::run_vpass(&prg);
 
     let mut bc_comp = compile::CompilePass::new();
     //let mut vm = VM::new();
