@@ -40,6 +40,17 @@ pub struct VariableDefinition {
     pub stack_location: u32,
     // The Node that does the definition (Must be a `var a = x` definition)
     def_node: NodeId,
+    ///Was this declared in global scope or not?
+    global: bool,
+}
+
+impl VariableDefinition {
+    pub fn is_global(&self) -> bool {
+        return self.global;
+    }
+    pub fn is_local(&self) -> bool {
+        return !self.global;
+    }
 }
 
 
@@ -96,6 +107,9 @@ struct NRStack {
 }
 
 impl NRStack {
+    fn in_global_context(&self) -> bool {
+        return self.frames.len() > 1;
+    }
     /// Find a variable in the NRStack, returning the definition nodeid, 
     /// and the use kind
     fn find(&self, name: &str) -> Option<(NodeId, UseKind)> {
@@ -202,6 +216,11 @@ impl VariablePass {
         };
         self.refs.insert(nodeid_to_resolve,vu);
     }
+    pub fn get_def(&self, ni: NodeId) -> VariableDefinition {
+        //Your program should crash if calling get_def on something that isn't a variable
+        let vd = self.defs.get(&ni).unwrap();
+        return *vd
+    }
     pub fn get_usage(&self, ni: NodeId) -> (VariableUse,VariableDefinition) {
         //Your program should crash if calling get_usage on something that isn't a variable
         //Your program should crash if we forgot to name resolve required nodes as well.
@@ -215,6 +234,7 @@ impl VariablePass {
         let vd = VariableDefinition {
             stack_location: stack_location,
             def_node: nodeid,
+            global: false,
         };
         self.defs.insert(nodeid,vd);
     }
@@ -227,6 +247,7 @@ impl VariablePass {
         let vd = VariableDefinition {
             stack_location: stack_location,
             def_node: nodeid,
+            global: true,
         };
         self.names_in_use.push(s,nodeid);
         self.defs.insert(nodeid,vd);
@@ -236,9 +257,12 @@ impl VariablePass {
         let stack_location = self.func_ctr;
         self.func_ctr += 1;
 
+        let global = self.names_in_use.in_global_context();
+
         let vd = VariableDefinition {
             stack_location: stack_location,
             def_node: nodeid,
+            global: global,
         };
         self.names_in_use.push(s,nodeid);
         self.defs.insert(nodeid,vd);

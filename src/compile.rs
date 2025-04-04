@@ -174,13 +174,13 @@ impl CompilePass {
     pub fn emit_create_var(&mut self, v: &VarDecl) {
         let ch = current_chunk!(self);
         let vp = vpass::get_vpass();
-        let (var_use,var_def) = vp.get_usage(v.nodeid);
+        let var_def = vp.get_def(v.nodeid);
 
-        if var_use.is_global() {
+        if var_def.is_global() {
             //global var
             let index = var_def.stack_location;
             ch.add_set_global(index as usize);
-        } else if var_use.is_local() {
+        } else if var_def.is_local() {
             // We analyzed in the variable pass where this definition will be placed on the stack.
             ch.add_set_local(var_def.stack_location as u8);
         } else {
@@ -350,7 +350,6 @@ impl AstCooker for CompilePass {
      fn visit_assignment(&mut self, a: &Assignment) { 
         self.visit_expr(&a.val_expr);
 
-        assert!(false);
         let vp = vpass::get_vpass();
         let (var_use,var_def) = vp.get_usage(a.nodeid);
         //let id = self.ct_get_id_of_var(&a.var_name);
