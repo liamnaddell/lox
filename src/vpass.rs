@@ -5,6 +5,7 @@ struct VariablePassResults {
     vp: Option<VariablePass>,
 }
 
+//TODO: Use OnceCell for this
 static mut VPR: VariablePassResults = VariablePassResults {
     vp: None,
 };
@@ -34,9 +35,11 @@ pub fn run_vpass(p: &Program) {
 pub struct VariableDefinition {
     /// This is the location of the variable on the stack.
     /// For global variables, this is the "index" of the global.
+    /// For functions, this is the "index" of the function
+    /// TODO: Tag this separately
     pub stack_location: u32,
     // The Node that does the definition (Must be a `var a = x` definition)
-    //def_node: NodeId,
+    def_node: NodeId,
 }
 
 
@@ -76,14 +79,15 @@ impl NRStackFrame {
         return self.defs.get(s).copied();
     }
     /// Add the variable name (and it's definition node) to the current 
-    /// scope Returns `false` if the variable was already present
-    fn add_name(&mut self, s: &str,nodeid: NodeId) -> bool {
+    /// Returns the index of that declaration
+    fn add_name(&mut self, s: &str,nodeid: NodeId) -> Option<u32> {
         // We already have this name declared in the current scope!
         if self.find_name(s).is_some() {
-            return false;
+            return None;
         }
+        let ret = Some(self.defs.len() as u32);
         self.defs.insert(s.to_string(),nodeid);
-        return true;
+        return ret;
     }
 }
 
@@ -96,15 +100,13 @@ impl NRStack {
     /// and the use kind
     fn find(&self, name: &str) -> Option<(NodeId, UseKind)> {
         //Tracks what frame we are on
-        let mut i = 0;
-        // When iterating in reverse order, this is the "first" frame or "global variable" frame
-        let global_frame = self.frames.len() - 1;
-        // Reverse-iterate through the frames looking for a definition
-        while i < global_frame {
+        let mut i = self.frames.len() - 1;
+        let local_frame = i;
+        while i >= 0 {
             if let Some(def_nodeid) = self.frames[i].find_name(name) {
-                let use_kind = if i == global_frame {
+                let use_kind = if i == 0 {
                     UseKind::Global
-                } else if i == 0 {
+                } else if i == local_frame {
                     UseKind::Local
                 } else {
                     UseKind::Upvalue
@@ -117,15 +119,16 @@ impl NRStack {
     }
     ///push a new name onto the stack. Errors if trying to push the same
     ///name in the same context multiple times.
-    fn push(&mut self, name: &str, nodeid: NodeId) {
+    fn push(&mut self, name: &str, nodeid: NodeId) -> u32 {
         let fno = self.frames.len() - 1;
         let relevant_frame = &mut self.frames[fno];
 
-        let good = relevant_frame.add_name(name,nodeid);
+        let maybe_ofs = relevant_frame.add_name(name,nodeid);
 
-        if !good {
+        let Some(ofs) = maybe_ofs else {
             panic!("Error handling add");
-        }
+        };
+        return ofs;
     }
     fn push_context(&mut self) {
         self.frames.push(NRStackFrame::new());
@@ -161,7 +164,12 @@ pub struct VariablePass {
     current_stack_loc: u32,
     /// Are we currently adding local variable definitions? Or global variable
     /// definitions.
-    is_local: bool
+    is_local: bool,
+    /// The number of global variables, used to give indexes to globals
+    global_ctr: u32,
+    /// The number of functions, used to give indexes to functions
+    func_ctr: u32,
+
 }
 
 
@@ -173,6 +181,9 @@ impl VariablePass {
             defs: HashMap::new(),
             current_stack_loc: 0,
             is_local: false,
+            global_ctr: 0,
+            // the 0th function is the "main" implicit function
+            func_ctr: 1,
         }
     }
     fn resolve_name(&mut self, name: &str, nodeid_to_resolve: NodeId) {
@@ -181,7 +192,7 @@ impl VariablePass {
 
         // Check that the name can be resolved
         let Some((def_nodeid,use_kind)) = self.names_in_use.find(&name) else {
-            panic!("Add error message");
+            panic!("Name resolution on `{}` failed!", name);
         };
 
         //Create-and-insert a use for this variable.
@@ -198,11 +209,39 @@ impl VariablePass {
         let vd = self.defs.get(&vu.what_used).unwrap();
         return (*vu,*vd)
     }
-    fn add_local(&mut self, _s:&str, _stack_location: u32,_nodeid: NodeId) {
-        todo!()
+    /// Add a new local to the current scope
+    fn add_local(&mut self, s:&str,nodeid: NodeId) {
+        let stack_location = self.names_in_use.push(s,nodeid);
+        let vd = VariableDefinition {
+            stack_location: stack_location,
+            def_node: nodeid,
+        };
+        self.defs.insert(nodeid,vd);
     }
-    fn add_global(&mut self, _s:&str, _nodeid: NodeId) {
-        todo!()
+    /// Add a new global to the current scope
+    /// Must ONLY be called at global scope.
+    fn add_global(&mut self, s:&str, nodeid: NodeId) {
+        let stack_location = self.global_ctr;
+        self.global_ctr += 1;
+
+        let vd = VariableDefinition {
+            stack_location: stack_location,
+            def_node: nodeid,
+        };
+        self.names_in_use.push(s,nodeid);
+        self.defs.insert(nodeid,vd);
+    }
+    /// Add a new function to the current scope
+    fn add_func(&mut self, s: &str, nodeid: NodeId) {
+        let stack_location = self.func_ctr;
+        self.func_ctr += 1;
+
+        let vd = VariableDefinition {
+            stack_location: stack_location,
+            def_node: nodeid,
+        };
+        self.names_in_use.push(s,nodeid);
+        self.defs.insert(nodeid,vd);
     }
 }
 
@@ -210,20 +249,27 @@ impl AstCooker for VariablePass {
     fn visit_function(&mut self, f: &FnDecl) {
         self.is_local = true;
         // We allow for recursion!
-        self.names_in_use.push(&f.name,f.nodeid);
+        self.add_func(&f.name,f.nodeid);
+        self.names_in_use.push_context();
+        for arg in f.args.iter() {
+            //This needs to refer to a proper AST item, not the function
+            self.add_local(&arg.arg_name,arg.nodeid);
+        }
         self.recurse_function(f);
+        self.names_in_use.pop_context();
         self.is_local = false;
+    }
+    fn visit_call(&mut self, c: &Call) {
+        self.resolve_name(&c.fn_name,c.nodeid);
+        self.recurse_call(c);
     }
 
     fn visit_var(&mut self, v: &VarDecl) {
         if self.is_local {
-            let variable_stack_loc = self.current_stack_loc;
-            self.current_stack_loc += 1;
-            self.add_local(&v.name,variable_stack_loc,v.nodeid);
+            self.add_local(&v.name,v.nodeid);
         } else {
             self.add_global(&v.name,v.nodeid);
         }
-        self.names_in_use.push(&v.name,v.nodeid);
         
     }
 

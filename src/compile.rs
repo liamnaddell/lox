@@ -200,7 +200,7 @@ impl CompilePass {
             return;
         }
         //not implemented
-        assert!(var_use.is_upvalue());
+        assert!(var_use.is_local());
         let ch = current_chunk!(self);
         ch.add_get_local(var_def.stack_location as u8);
     }
@@ -307,13 +307,11 @@ impl AstCooker for CompilePass {
             }
         }
     }
-     fn visit_call(&mut self, _c: &Call) { 
-         todo!();
-         /*
-        let findex = self.ct_get_function_index(&c.fn_name);
-        let Some(findex) = findex else {
-            panic!("ya that function doesnt exist buddy");
-        };
+     fn visit_call(&mut self, c: &Call) { 
+        let vp = vpass::get_vpass();
+        let (var_use,var_def) = vp.get_usage(c.nodeid);
+        let findex = var_def.stack_location as usize;
+
         let funct = &self.funcs[findex];
         if c.args.len() != funct.arity {
             panic!("Arity mismatch :/, expected {} args got {}  now i die", funct.arity,c.args.len());
@@ -328,7 +326,6 @@ impl AstCooker for CompilePass {
             //we gotta pop these bad boys off the stack once we are done.
             ch.add_pop();
         }
-         */
     }
      fn visit_binary(&mut self, b: &Binary) { 
         use BinOp::*;

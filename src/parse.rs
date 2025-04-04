@@ -7,6 +7,7 @@ use crate::ast;
 
 //TODO: Switch out Rc< for lifetime param
 enum AstNode {
+    FnArg(Rc<FnArg>),
     FnDecl(Rc<FnDecl>),
     Block(Rc<Block>),
     Print(Rc<Print>),
@@ -50,6 +51,7 @@ macro_rules! do_shit {
     }
 }
 impl AstStore {
+    do_shit!(FnArg,get_fnarg,add_fnarg);
     do_shit!(FnDecl,get_fndecl,add_fndecl);
     do_shit!(Block,get_block,add_block);
     do_shit!(Print,get_print,add_print);
@@ -209,7 +211,7 @@ impl ParsePass {
             let mut tkn = ts.get(i);
 
             if let TokenType::Identifier(ref id) = tkn.tkn_type {
-                args.push(id.clone());
+                args.push(self.ast.add_fnarg(FnArg::new(id.clone(),0)));
                 if i + 1 >= ts.end() {
                     return Err(new_err(tkn.locus,"Abrupt end of program :/"));
                 }

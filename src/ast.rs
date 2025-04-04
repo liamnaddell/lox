@@ -60,17 +60,32 @@ pub struct For;
 pub type NodeId = u32;
 
 #[derive(Debug)]
+pub struct FnArg {
+    pub arg_name: String,
+    pub nodeid: NodeId,
+}
+
+impl FnArg {
+    pub fn new(arg_name: String, nodeid: NodeId) -> Self {
+        FnArg {
+            arg_name,
+            nodeid
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct FnDecl {
     #[allow(dead_code)]
     pub locus: usize,
     pub name: String,
-    pub args: Vec<String>,
+    pub args: Vec<Rc<FnArg>>,
     pub fn_def: Rc<Block>,
     pub nodeid: NodeId,
 }
 
 impl FnDecl {
-    pub fn new(locus: usize, name: String, args: Vec<String>, fn_def: Rc<Block>, nodeid: NodeId) -> FnDecl {
+    pub fn new(locus: usize, name: String, args: Vec<Rc<FnArg>>, fn_def: Rc<Block>, nodeid: NodeId) -> FnDecl {
         FnDecl { locus, name, args, fn_def, nodeid }
     }
 }
@@ -326,7 +341,12 @@ pub trait AstCooker {
 
     /* Default visitor functions, should not be overridden */
     fn recurse_function(&mut self, f: &FnDecl) {
-        self.visit_block(&f.fn_def)
+        //We don't visit block because function "Blocks"
+        //are a logical storage unit but do not open a new scope.
+        //self.visit_block(&f.fn_def)
+        for d in f.fn_def.decls.iter() {
+            self.visit_decl(d);
+        }
     }
     fn recurse_block(&mut self, b: &Block) {
         for d in b.decls.iter() {
