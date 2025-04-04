@@ -108,7 +108,7 @@ struct NRStack {
 
 impl NRStack {
     fn in_global_context(&self) -> bool {
-        return self.frames.len() > 1;
+        return self.frames.len() == 1;
     }
     /// Find a variable in the NRStack, returning the definition nodeid, 
     /// and the use kind

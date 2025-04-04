@@ -209,7 +209,6 @@ impl AstCooker for CompilePass {
     fn visit_function(&mut self, f: &FnDecl) { 
         let name = f.name.clone();
         let current_fn = self.current_chunk;
-        let cnk_no = self.add_new_chunk();
         /*
          * TODO: WTF THIS ACC NOT REQUIRED AT ALL NOW!!!
         for arg in &f.args {
@@ -220,16 +219,19 @@ impl AstCooker for CompilePass {
             let _ofs = self.ct_add_decl(id);
         }
         */
+        //TODO: This order of opreations is absolute garbage.
+        let cnk_no = self.add_new_chunk();
+        let func = Function { chunk:cnk_no, arity: f.args.len()};
+        self.ct_add_function(name,func);
+
         self.visit_block(&f.fn_def);
         let sub_cnk = current_chunk!(self);
         sub_cnk.add_return();
 
-        let func = Function { chunk:cnk_no, arity: f.args.len()};
 
         //self.ct_pop_scope();
         //TODO: This is complete spaghet
         self.current_chunk = current_fn;
-        self.ct_add_function(name,func);
     }
      fn visit_block(&mut self, b: &Block) { 
         for stmt in &b.decls {
