@@ -1,0 +1,4 @@
+1. trying to create a AST node store is awful because you can't just hand out ptrs and references like c++
+2. trying to create an AST node store is awful because you can't just store pointers
+3. dealing with nodeid's is horrible because no OO
+4. AI generate your ::new() functions!
