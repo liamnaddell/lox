@@ -16,13 +16,15 @@ pub struct CompilePass {
     /** used for allocating ct_name_to_id slots */
     next_id: u64,
 }
+
 macro_rules! current_chunk {
     ($self:ident) => { &mut $self.cnks[$self.current_chunk] }
 }
+
 impl CompilePass {
     pub fn new() -> Self {
         let cc = Chunk::new();
-        let func = Function { chunk: 0, arity: 0 };
+        let func = Function { chunk: 0, arity: 0,upvalues_template:vec!()};
         return CompilePass {
             cnks: vec!(cc),
             globals:vec!(),
@@ -85,23 +87,34 @@ impl CompilePass {
         } else if var_def.is_local() {
             // We analyzed in the variable pass where this definition will be placed on the stack.
             ch.add_set_local(var_def.stack_location as u8);
-        } else {
-            //upvalue
-            todo!();
         }
     }
 
+    /** Misnamed function, should be emit_get_ident, either local,global var, or func */
     pub fn emit_get_var(&mut self,v: &ast::Literal) {
         let vp = vpass::get_vpass();
         let (var_use,var_def) = vp.get_usage(v.nodeid);
+        let ch = current_chunk!(self);
+
+        if var_def.is_func() {
+            let findex = var_def.stack_location;
+            ch.add_closure(findex as usize);
+            return;
+        }
 
         if var_use.is_global() {
             let index = var_def.stack_location;
-            let ch = current_chunk!(self);
             ch.add_get_global(index as usize);
             return;
         }
-        //not implemented
+
+        if var_use.is_upvalue() {
+            let index = var_use.upvalue_slot;
+            ch.add_get_upvalue(index as u8);
+            return;
+        }
+
+
         assert!(var_use.is_local());
         let ch = current_chunk!(self);
         ch.add_get_local(var_def.stack_location as u8);
@@ -114,11 +127,17 @@ impl AstCooker for CompilePass {
         //NOTE: We don't have to do anything for variables, since they will be pushed onto the
         //stack by the caller.
         let cnk_no = self.add_new_chunk();
-        let func = Function { chunk:cnk_no, arity: f.args.len()};
+        //fill out upvalues_template
+        let vp = vpass::get_vpass();
+        let func = Function { chunk:cnk_no, arity: f.args.len(),
+        upvalues_template:vp.get_upvalue_template(f.nodeid)};
         self.ct_add_function(name,func);
 
         self.visit_block(&f.fn_def);
         let sub_cnk = current_chunk!(self);
+        //The block might have a return, in which case these are needless.
+        //However, it's easier to just leave these in for now.
+        sub_cnk.add_nil();
         sub_cnk.add_return();
 
 
@@ -204,18 +223,34 @@ impl AstCooker for CompilePass {
      fn visit_call(&mut self, c: &Call) { 
         let vp = vpass::get_vpass();
         let (var_use,var_def) = vp.get_usage(c.nodeid);
-        let findex = var_def.stack_location as usize;
 
-        let funct = &self.funcs[findex];
-        if c.args.len() != funct.arity {
-            panic!("Arity mismatch :/, expected {} args got {}  now i die", funct.arity,c.args.len());
-
-        }
         for arg in &c.args {
             self.visit_expr(arg);
         }
+        //We can either be calling a function directly, or calling a function bound to a
+        //global/local variable, or calling a function bound to an upvalue 🤮
+
+        let ch = current_chunk!(self);
+        if var_def.is_func() {
+            //case 1: calling a function directly
+            let findex = var_def.stack_location as usize;
+            ch.add_closure(findex);
+        } else if var_def.is_global() {
+            //case 2: Global
+            ch.add_get_global(var_def.stack_location as usize);
+        } else if var_use.is_local() {
+            //case 3: local variable
+            ch.add_get_local(var_def.stack_location as u8);
+        } else if var_use.is_upvalue() {
+            //case 4: upvalue
+            ch.add_get_upvalue(var_use.upvalue_slot as u8);
+
+        } else {
+            //whut?
+            unreachable!();
+        }
         let ch=current_chunk!(self);
-        ch.add_call(findex);
+        ch.add_call();
         for _ in 0..c.args.len() {
             //we gotta pop these bad boys off the stack once we are done.
             ch.add_pop();
@@ -246,7 +281,6 @@ impl AstCooker for CompilePass {
 
         let vp = vpass::get_vpass();
         let (var_use,var_def) = vp.get_usage(a.nodeid);
-        //let id = self.ct_get_id_of_var(&a.var_name);
         let ofs = var_def.stack_location;
 
         if var_use.is_global() {
@@ -257,6 +291,15 @@ impl AstCooker for CompilePass {
             ch.add_get_global(index as usize);
             return;
         }
+
+        if var_use.is_upvalue() {
+            let index = ofs;
+            let ch=current_chunk!(self);
+            ch.add_set_upvalue(var_use.upvalue_slot as u8);
+            //exprs must return something.
+            ch.add_get_upvalue(index as u8);
+        }
+
         let ch=current_chunk!(self);
         ch.add_set_local(ofs as u8);
         ch.add_get_local(ofs as u8);
@@ -299,7 +342,14 @@ impl AstCooker for CompilePass {
             Stmt::Block(ref b) => {
                 self.visit_block(b);
             }
-            _ => { todo!() }
+            Stmt::Return(ref r) => {
+                self.visit_expr(&r.rval);
+                let ch=current_chunk!(self);
+                ch.add_return();
+            }
+            _ => {
+                todo!();
+            }
         }
     }
      fn visit_decl(&mut self, d: &ast::Decl) {
@@ -324,6 +374,7 @@ impl AstCooker for CompilePass {
             self.visit_decl(&decl);
         }
         let ch=current_chunk!(self);
+        ch.add_nil();
         ch.add_return();
     }
 

@@ -1,6 +1,7 @@
 use crate::ast::*;
 use std::collections::HashMap;
 use std::sync::OnceLock;
+use crate::bc;
 
 struct VariablePassResults {
     vp: VariablePass,
@@ -30,12 +31,12 @@ pub struct VariableDefinition {
     /// This is the location of the variable on the stack.
     /// For global variables, this is the "index" of the global.
     /// For functions, this is the "index" of the function
-    /// TODO: Tag this separately
     pub stack_location: u32,
     // The Node that does the definition (Must be a `var a = x` definition)
     def_node: NodeId,
     ///Was this declared in global scope or not?
     global: bool,
+    is_func: bool,
 }
 
 impl VariableDefinition {
@@ -45,6 +46,9 @@ impl VariableDefinition {
     pub fn is_local(&self) -> bool {
         return !self.global;
     }
+    pub fn is_func(&self) -> bool {
+        return self.is_func;
+    }
 }
 
 
@@ -52,23 +56,29 @@ impl VariableDefinition {
 pub enum UseKind {
     Local,
     Global,
-    Upvalue
+    /* is this a local upvalue or not */
+    Upvalue(bool),
 }
 
 #[derive(Clone,Copy)]
 pub struct VariableUse {
     /// How is this variable used
     pub use_kind: UseKind,
-    // Where is the variable used
-    //pub use_loc: NodeId,
     /// Note, to get the VariableDefinition stack_location, key this into VariablePass.defs
     pub what_used: NodeId,
+    /// If this is an upvalue, this is the slot.
+    pub upvalue_slot: usize,
 }
 
 impl VariableUse {
     pub fn is_global(&self) -> bool { self.use_kind == UseKind::Global }
     pub fn is_local(&self) -> bool { self.use_kind == UseKind::Local }
-    pub fn is_upvalue(&self) -> bool { self.use_kind == UseKind::Upvalue }
+    pub fn is_upvalue(&self) -> bool { 
+        if let UseKind::Upvalue(_) = self.use_kind {
+            return true;
+        }
+        return false;
+    }
 }
 
 struct NRStackFrame {
@@ -79,10 +89,12 @@ impl NRStackFrame {
     fn new() -> Self {
         return NRStackFrame { defs: HashMap::new() };
     }
+
     /// Check if the variable is defined in the current scope
     fn find_name(&self, s: &str) -> Option<NodeId> {
         return self.defs.get(s).copied();
     }
+
     /// Add the variable name (and it's definition node) to the current 
     /// Returns the index of that declaration
     fn add_name(&mut self, s: &str,nodeid: NodeId) -> Option<u32> {
@@ -117,14 +129,18 @@ impl NRStack {
                 } else if i == local_frame {
                     UseKind::Local
                 } else {
-                    UseKind::Upvalue
+                    //The frame the upvalue is in is in our parent function.
+                    //Needed for later.
+                    let is_local = local_frame - i == 1;
+                    UseKind::Upvalue(is_local)
                 };
                 return Some((def_nodeid,use_kind));
             }
-            i += 1;
+            i -= 1;
         }
         return None;
     }
+
     ///push a new name onto the stack. Errors if trying to push the same
     ///name in the same context multiple times.
     fn push(&mut self, name: &str, nodeid: NodeId) -> u32 {
@@ -138,13 +154,16 @@ impl NRStack {
         };
         return ofs;
     }
+
     fn push_context(&mut self) {
         self.frames.push(NRStackFrame::new());
     }
+
     fn pop_context(&mut self) {
         assert!(self.frames.len() != 0);
         self.frames.pop();
     }
+
     fn new() -> Self {
         let mut nr = NRStack { frames: vec!() };
         //add context for the global scope
@@ -153,6 +172,46 @@ impl NRStack {
     }
 
 }
+
+/** 
+ * This is how upvalues are tracked at compile time.
+ */
+struct Upvalue {
+    what_used: NodeId,
+    /** Is the upvalue a local variable in our parent function? */
+    is_local: bool,
+}
+
+/**
+ * Each function has a list of upvalues it (or it's descendent functions) use
+ */
+struct UpvalueList {
+    upvalues: Vec<Upvalue>,
+}
+
+impl UpvalueList {
+    pub fn new() -> Self {
+        return UpvalueList { upvalues: vec!()};
+    }
+
+    pub fn add_upvalue(&mut self, what_used: NodeId,is_local: bool) -> usize {
+        let idx = self.upvalues.len();
+        self.upvalues.push(Upvalue { what_used, is_local });
+        return idx;
+    }
+
+    pub fn create_or_get_upvalue(&mut self, what_used: NodeId,is_local:bool) -> usize {
+        let mut i = 0;
+        for uv in self.upvalues.iter() {
+            if uv.what_used == what_used {
+                return i;
+            }
+            i+=1;
+        }
+        return self.add_upvalue(what_used,is_local);
+    }
+}
+
 
 pub struct VariablePass {
     /// A structure for tracking what variable names are currently defined.
@@ -177,11 +236,22 @@ pub struct VariablePass {
     global_ctr: u32,
     /// The number of functions, used to give indexes to functions
     func_ctr: u32,
+    /// A struct that tracks which upvalues are utilized by a given function.
+    upvalues: HashMap<NodeId,UpvalueList>,
+    /// This is used while traversing the AST to track which function we are at, and which
+    /// functions we had to traverse through to get here. 
+    /// The reason we need this is that if the innermost function references an upvalue,
+    /// we need to copy that upvalue up to our parent function, so they know to store that
+    /// upvalue if the function is returned by value.
+    func_stack: Vec<NodeId>,
 
 }
 
 
 impl VariablePass {
+    pub fn current_fn(&self) -> NodeId {
+        return self.func_stack[self.func_stack.len() - 1];
+    }
     pub fn new() -> Self {
         return VariablePass {
             names_in_use: NRStack::new(),
@@ -192,7 +262,20 @@ impl VariablePass {
             global_ctr: 0,
             // the 0th function is the "main" implicit function
             func_ctr: 1,
+            func_stack: vec!(),
+            upvalues: HashMap::new(),
         }
+    }
+    //TODO: Bad practice for vpass to depend on bc ? 
+    pub fn get_upvalue_template(&self,nodeid: NodeId) -> Vec<bc::Upvalue> {
+        let uvs = self.get_upvalues(nodeid);
+        let mut tvs = vec!();
+        let mut i = 0;
+        for uv in uvs.upvalues.iter() {
+            tvs.push ( bc::Upvalue::new(uv.is_local, i));
+            i+=1;
+        }
+        return tvs;
     }
     fn resolve_name(&mut self, name: &str, nodeid_to_resolve: NodeId) {
         // This means we tried to resolve the same nodeid twice!
@@ -203,10 +286,18 @@ impl VariablePass {
             panic!("Name resolution on `{}` failed!", name);
         };
 
+        let mut upvalue_slot = 0;
+        if let UseKind::Upvalue(is_local) = use_kind {
+            let function_to_resolve_in = self.current_fn();
+            upvalue_slot = self.upvalues.get_mut(&function_to_resolve_in).unwrap().create_or_get_upvalue(def_nodeid,is_local);
+        }
+
+
         //Create-and-insert a use for this variable.
         let vu = VariableUse { use_kind: use_kind
             //, use_loc: nodeid_to_resolve
             , what_used: def_nodeid
+            , upvalue_slot
         };
         self.refs.insert(nodeid_to_resolve,vu);
     }
@@ -229,6 +320,7 @@ impl VariablePass {
             stack_location: stack_location,
             def_node: nodeid,
             global: false,
+            is_func: false,
         };
         self.defs.insert(nodeid,vd);
     }
@@ -242,9 +334,13 @@ impl VariablePass {
             stack_location: stack_location,
             def_node: nodeid,
             global: true,
+            is_func: false,
         };
         self.names_in_use.push(s,nodeid);
         self.defs.insert(nodeid,vd);
+    }
+    fn get_upvalues(&self,nodeid: NodeId) -> &UpvalueList {
+        return self.upvalues.get(&nodeid).unwrap();
     }
     /// Add a new function to the current scope
     fn add_func(&mut self, s: &str, nodeid: NodeId) {
@@ -253,10 +349,12 @@ impl VariablePass {
 
         let global = self.names_in_use.in_global_context();
 
+        self.upvalues.insert(nodeid,UpvalueList::new());
         let vd = VariableDefinition {
             stack_location: stack_location,
             def_node: nodeid,
             global: global,
+            is_func: true
         };
         self.names_in_use.push(s,nodeid);
         self.defs.insert(nodeid,vd);
@@ -273,10 +371,13 @@ impl AstCooker for VariablePass {
             //This needs to refer to a proper AST item, not the function
             self.add_local(&arg.arg_name,arg.nodeid);
         }
+        self.func_stack.push(f.nodeid);
         self.recurse_function(f);
+        self.func_stack.pop();
         self.names_in_use.pop_context();
         self.is_local = false;
     }
+
     fn visit_call(&mut self, c: &Call) {
         self.resolve_name(&c.fn_name,c.nodeid);
         self.recurse_call(c);
@@ -288,6 +389,7 @@ impl AstCooker for VariablePass {
         } else {
             self.add_global(&v.name,v.nodeid);
         }
+        self.recurse_var(v);
         
     }
 

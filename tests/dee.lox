@@ -1,0 +1,23 @@
+func a() {
+    var i = 0;
+    func dee() {
+        i = i+1;
+    }
+    dee();
+    # b: upvalues[i:0,is_local:true]
+    fun b() {
+        # c: upvalues[i:0] (stored in fun c)
+        fun c() {
+            # i used here
+            print i;
+        };
+        # create a copy of i stored in `c`'s OBJ_FUNCTION
+        return c;
+    };
+    dee();
+    b()
+    dee();
+    # creates a copy of i stored in `b`'s OBJ_FUNCTION
+    return b;
+};
+a();

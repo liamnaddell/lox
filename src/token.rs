@@ -145,11 +145,14 @@ impl Tokenizer {
             '"' => { 
                 self.add_token_string()?;
             }
+            '#' => {
+                while self.advance() != '\n' {}
+            }
             _ => {
                 self.locus -=1;
                 if is_numeric(char) {
                     self.add_token_num()?;
-                } else if is_alpha(char) {
+                } else if is_alpha(char) || char == '_' {
                     self.add_token_identifier()?;
                 } else {
                     return Err(new_err(self.locus+1,"Unknown token in token stream"));
@@ -305,6 +308,6 @@ impl Tokenizer {
 
   // self explanatory
   fn is_alphanumeric(c: char) -> bool {
-      return is_alpha(c) || is_numeric(c);
+      return is_alpha(c) || is_numeric(c) || c == '_';
   }
 
