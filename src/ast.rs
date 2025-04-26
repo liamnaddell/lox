@@ -276,13 +276,13 @@ pub struct Assignment {
 pub struct Return {
     #[allow(dead_code)]
     pub locus: usize,
-    //TODO(rval): Add return values
+    pub rval: Expr,
     pub nodeid: NodeId,
 }
 
 impl Return {
-    pub fn new(locus: usize, nodeid: NodeId) -> Return {
-        Return { locus, nodeid }
+    pub fn new(locus: usize, rval: Expr, nodeid: NodeId) -> Return {
+        Return { locus, rval, nodeid }
     }
 }
 
@@ -462,7 +462,9 @@ pub trait AstCooker {
             }
         }
     }
-    fn recurse_return(&mut self, _: &Return) { todo!(); }
+    fn recurse_return(&mut self, r: &Return) {
+        self.visit_expr(&r.rval);
+    }
     fn recurse_program(&mut self, p: &Program) {
         for d in p.decls.iter() {
             self.visit_decl(d);

@@ -587,7 +587,9 @@ impl ParsePass {
                 return Err(new_err(ts.loc(0),"idk bcs while loop not implemented yet"));
             },
             TokenType::Return => {
-                return Err(new_err(ts.loc(0),"idk bcs return not implemented yet"));
+                let expr = self.parse_expr(ts.sub(1,0))?;
+                let ret = self.add_return(Return::new(ts.loc(0),expr,0));
+                return Ok(Stmt::Return(ret));
             },
             _ => {
                 let sub = self.parse_expr(ts.sub(0,0))?;

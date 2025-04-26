@@ -1,0 +1,16 @@
+fun counter_factory() {
+  var ctr = 0;
+  fun method() {
+    ctr = ctr + 1;
+    return ctr;
+  };
+  return method;
+};
+
+var ctr = counter_factory();
+# 1
+print ctr();
+# 2
+print ctr();
+# 3
+print ctr();

@@ -1,4 +1,7 @@
 use std::fmt;
+use std::rc::Rc;
+use std::cell::RefCell;
+
 
 #[repr(u8)]
 #[derive(Clone,Copy,Ord,PartialOrd,PartialEq,Eq,Debug)]
@@ -25,20 +28,22 @@ pub enum Opcode {
     OP_OR,
     OP_JUMP_IF_FALSE,
     OP_JUMP,
-    //create a function on the stack
-    #[allow(dead_code)]
-    OP_FUNC,
+    //create a closure on the stack
+    OP_CLOSURE,
     //create a function on the stack with arguments after
     OP_CALL,
     OP_SET_GLOBAL,
     OP_GET_GLOBAL,
     OP_SET_LOCAL,
     OP_GET_LOCAL,
+    OP_GET_UPVALUE,
+    OP_SET_UPVALUE,
 
     //MAKE SURE THIS IS THE LAST ONE!!!!!
     /* NEVER ADD CODE HERE */
     OP_NONE, /* DONT THINK ABOUT IT!!! */
     /* NEVER ADD CODE HERE */
+    /* See Opcode::from_u8 as for why */
 /*STOP*/}
 
 impl Opcode {
@@ -52,14 +57,57 @@ impl Opcode {
     }
 }
 
+#[derive(Clone, Debug)]
+struct Closure{
+    /** index into vm.funcs */
+    pub func: usize,
+    /** A list of upvalue objects that may be referenced by the function body */
+    pub upvalues: Vec<Upvalue>,
+}
+
+/** We need to impl PartialEq because Closures are values */
+impl PartialEq for Closure {
+    fn eq(&self, oth: &Self) -> bool {
+        return self.func == oth.func;
+    }
+}
+
+impl fmt::Display for Closure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "func: {}, upvalues: [", self.func,)?;
+        for uv in self.upvalues.iter() {
+            write!(f,"{},",uv)?;
+        }
+        write!(f,"\n")
+
+    }
+}
+
+impl Closure {
+    pub fn new(vm: &VM, findex: usize) -> Self {
+        return Closure { func: findex, upvalues: vm.funcs[findex].upvalues_template.clone() };
+    }
+}
+
+/** A unique address used to find an upvalue inside struct VM */
+#[derive(Clone,Copy,Debug)]
+struct UpvalueAddress {
+    frame: usize,
+    upvalue: usize,
+}
+impl UpvalueAddress {
+    pub fn new(frame: usize, upvalue: usize) -> Self {
+        return UpvalueAddress { frame: frame, upvalue: upvalue }
+    }
+}
+
 #[derive(Clone,PartialEq, Debug)]
 pub enum Value {
     Bool(bool),
     Nil,
     Num(f64),
     String(String),
-    //index into vm.funcs
-    Func(usize),
+    Closure(Closure),
 }
 
 impl fmt::Display for Value {
@@ -77,11 +125,11 @@ impl fmt::Display for Value {
             Value::String(fstr) => {
                 write!(f,"{}",fstr)?;
             }
-            Value::Func(i) => {
-                write!(f,"<func: {}>",i)?;
+            Value::Closure(i) => {
+                write!(f,"<closure: {}>",i)?;
             }
         }
-        write!(f,"\n")
+        write!(f,"")
     }
 }
 
@@ -104,22 +152,82 @@ fn is_falsey(v: &Value) -> bool {
     return false;
 }
 
+/** This is how Upvalues are stored inside closures.
+ * When executing OP_CLOSURE, all the Upvalues
+ * will be closed. Before that point, we need to traverse
+ * up the function stack to access an upvalue
+ */
+#[derive(Clone,Debug)]
+pub struct Upvalue {
+    /** 
+     * Is the upvalue in our direct parent function? 
+     * Or do we need to go to other frames to get to
+     * her 
+     */
+    is_local: bool,
+    /**
+     * If our upvalue is in our direct parent function, this is the offset
+     * If our upvalue is in her enclosing function, this is the index into our
+     * parent's `upvalues` array 
+     */
+    slot: u32,
+    //FIXME: This is a temporary hack to get around having no garbage collector.
+    closed_value: Option<Rc<RefCell<Value>>>,
+}
+
+impl fmt::Display for Upvalue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f,"(is_local: {}, slot: {}, closed_value: {})",self.is_local,self.slot,self.closed_value.is_some())
+    }
+}
+
+impl Upvalue {
+    pub fn is_closed(&self) -> bool {
+        self.closed_value.is_some()
+    }
+    pub fn is_local(&self) -> bool {
+        self.is_local
+    }
+    pub fn set(&mut self, v: Value) {
+        if let Some(ref mut old_value) = self.closed_value {
+            old_value.replace(v);
+        } else {
+            self.closed_value = Some(Rc::new(RefCell::new(v)));
+        }
+    }
+    pub fn get(&self) -> Value {
+        let Some(ref v) = self.closed_value else {
+            unreachable!();
+        };
+
+        return (*v).borrow().clone();
+    }
+    pub fn new(is_local: bool, slot: u32) -> Upvalue {
+        return Upvalue { is_local:is_local,slot:slot,closed_value:None};
+    }
+}
+
 pub struct Function {
     pub chunk: usize,
     pub arity: usize,
+    /** This is added by the compile.rs code to list all the
+     * open upvalues a function utilizes
+     */
+    pub upvalues_template: Vec<Upvalue>,
 }
+
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f,"arity:{}>\n",self.arity)
     }
 }
 
-#[derive(Clone,Copy)]
+#[derive(Clone)]
 struct Frame {
     //stored instruction pointer in previous frame (return address)
     sip: usize,
-    //index into vm.funcs, i.e. which function 
-    func_index: usize,
+    // The function (closure) we are currently running.
+    closure: Closure,
     //size of the stack before the function call.
     sp: usize,
 }
@@ -144,6 +252,62 @@ impl VM {
             globals: cp.globals,
         };
     }
+    /** 
+     * This function takes an upvalue in the current frame of execution and 
+     * closes it by traversing up the stack.
+     * NOTE: The upvalue is behind a RC<>, meaning ALL upvalue references point
+     * to the same underlying object.
+     */
+    pub fn close_upvalue(&mut self, upvalue_index: usize) {
+        //start at the lowest frame.
+        let mut i = self.frames.len() - 1;
+        //this is the offset into the current closure's upvalue array we are interested in.
+        let mut slot = upvalue_index as usize;
+
+        //This while loop traverses up the stack to resolve the upvalue.
+        while i > 0 {
+            let cu = &mut self.frames[i].closure.upvalues[slot];
+            //this is the offset into the next frame's upvalue array.
+            slot = cu.slot as usize;
+            if cu.is_local() {
+                //The upvalue is a local variable in our parent frame.
+                let val = &self.stack[self.frames[i].sp + slot];
+                //so we grab it.
+                let cu = &mut self.frames[i].closure.upvalues[slot];
+                //this closes the upvalue.
+                cu.set(val.clone());
+                //The bottom section would copy again. Tis' harmless yet a waste.
+                return;
+            }
+            if cu.is_closed() {
+                //in this case, the upvalue was already closed.
+                //Proceed to the bottom section where we copy the 
+                //closed value
+                break;
+            }
+            i -= 1;
+        }
+        assert!(i > 0);
+        let cu = &self.frames[i].closure.upvalues[slot];
+        let cv = Some(cu.closed_value.as_ref().unwrap().clone());
+        let lf = self.frames.len() - 1;
+        let u = &mut self.frames[lf].closure.upvalues[upvalue_index];
+        u.closed_value = cv;
+    }
+    pub fn create_closed_closure(&mut self,findex: usize) -> Closure {
+        let mut cl = Closure::new(self,findex);
+        let len = cl.upvalues.len();
+        //close_upvalue resolves upvalues in the "current frame".
+        //We need to temporarily push the closure onto the framestack 
+        //in order to resolve upvalues.
+        //Makes the code easier to write.
+        self.frames.push(Frame { closure:cl,sip:0,sp:0});
+        for upvalue in 0..len {
+            self.close_upvalue(upvalue);
+        }
+        let f = self.frames.pop().unwrap();
+        return f.closure;
+    }
     pub fn stack_len(&self) -> usize {
         return self.stack.len();
     }
@@ -154,7 +318,7 @@ impl VM {
         return self.stack.push(v);
     }
     pub fn pop_stack(&mut self) -> Value {
-        return self.stack.pop().expect("ICE");
+        return self.stack.pop().expect("attempt to pop off the stack but there's nothing on the stack");
     }
     fn get_fn(&self,opc:Opcode) -> FBinOp {
         use Opcode::*;
@@ -167,16 +331,20 @@ impl VM {
         };
     }
 
-    fn current_frame(&self) -> Frame {
+    fn current_frame(&self) -> &Frame {
         assert!(self.frames.len() > 0);
-        let frame = self.frames[self.frames.len() - 1];
+        let frame = &self.frames[self.frames.len() - 1];
         return frame;
     }
 
     pub fn current_func(&self) -> &Function {
-        let findex = self.current_frame().func_index;
+        let findex = self.current_closure().func;
         assert!(findex < self.funcs.len());
         return &self.funcs[findex];
+    }
+
+    pub fn current_closure(&self) -> &Closure {
+        return &self.current_frame().closure;
     }
 
     pub fn current_chunk(&self) -> &Chunk {
@@ -191,13 +359,99 @@ impl VM {
         return &self.current_chunk().constants;
     }
 
+    pub fn get_upvalue(&self, ua: UpvalueAddress) -> &Upvalue {
+        return &self.frames[ua.frame].closure.upvalues[ua.upvalue];
+    }
+
+    pub fn get_upvalue_mut(&mut self, ua: UpvalueAddress) -> &mut Upvalue {
+        return &mut self.frames[ua.frame].closure.upvalues[ua.upvalue];
+    }
+
+    /**
+     * Trivial upvalues are local upvalues or previously resolved.
+     * See get_or_set_upvalue for explanation of the parameters.
+     */
+    fn resolve_trivial_upvalue (&mut self,ua: UpvalueAddress,v:Option<Value>) -> Option<Value> {
+        let uv = self.get_upvalue(ua);
+        if uv.is_closed() {
+            if v.is_some() {
+                //set operation
+                let uv = self.get_upvalue_mut(ua);
+                uv.set(v.unwrap());
+            } else {
+                //get operation
+                return Some(uv.get());
+            }
+        } else if uv.is_local() {
+            //if uv is local then the upvalue can be resolved
+            //in our parent frame. This means it's a local
+            //variable there. This code grabs that local.
+            let frameno = ua.frame - 1;
+            let stack_base = self.frames[frameno].sp;
+            let stack_ofs = stack_base + uv.slot as usize;
+            if let Some(va) = v {
+                self.stack[stack_ofs] = va;
+            } else {
+                return Some(self.stack[stack_ofs].clone());
+            }
+        }
+        None
+    }
+    /** 
+     * Resolve uv, if v is set, set upvalue to contain v
+     * if v is not set, return a copy of the value inside the upvalue
+     */
+    pub fn get_or_set_upvalue(&mut self, ua:UpvalueAddress, v: Option<Value>) -> Option<Value> {
+        let uv = self.get_upvalue_mut(ua);
+        if uv.is_closed() {
+            if let Some(set_val) = v {
+                //set operation
+                uv.set(set_val);
+                return None;
+            } else {
+                //get operatoin
+                return Some(uv.get());
+            }
+        }
+        //the upvalue is open, we need to traverse up the framestack now.
+        let uv = self.get_upvalue(ua);
+        //global frame, outer function, inner function
+        assert!(self.frames.len() >= 3);
+        let innermost_frame = self.frames.len() - 1;
+        let mut cur_frame_no = innermost_frame;
+        let mut slot = uv.slot;
+        //don't traverse into the global frame. U cant
+        //resolve upvalues to globals!
+        while cur_frame_no > 0 {
+            let cur_frame = &self.frames[cur_frame_no];
+
+            //Get which function this frame belongs to
+            let cur_clos = &cur_frame.closure;
+
+            //Get the upvalue from the function.
+            let u = &cur_clos.upvalues[slot as usize];
+            if u.is_local() || u.is_closed() {
+                //cant resolve in global space
+                assert!(cur_frame_no != 1);
+                return self.resolve_trivial_upvalue(UpvalueAddress::new(cur_frame_no,slot as usize),v);
+            }
+            //slot is the upvalue index in the current frame. We will go to the next frame where
+            //the upvalue slot is different.
+            slot = u.slot;
+            cur_frame_no -= 1;
+        }
+        //somehow we failed resolution on an upvalue which passed name resolution.
+        //Compiler bug!
+        unreachable!();
+    }
+
 
     pub fn interpret(&mut self) -> InterpretResult {
         use InterpretResult::*;
         use Opcode::*;
         let mut i = 0;
         //start at the main function
-        self.frames.push(Frame { sip: 0, func_index:0, sp: 0 });
+        self.frames.push(Frame { sip: 0, closure:Closure::new(self,0), sp: 0 });
         let mut reset_ip = false;
         let mut skip_increment = false;
         loop {
@@ -206,9 +460,11 @@ impl VM {
             }
             let opc = self.current_code()[i];
             let op = Opcode::from_u8(opc);
+            println!("About to execute {:?}",op);
             //TODO: Clean up all of this spammy garbage and get rid of CompileError
             match op {
                 OP_RETURN => { 
+                    let v = self.pop_stack();
                     let frame = self.frames.pop().unwrap();
 
                     if self.frames.len() == 0 {
@@ -223,8 +479,7 @@ impl VM {
                     while self.stack_len() != frame.sp { self.pop_stack(); };
 
                     i=frame.sip+1;
-                    //TODO(return): Add a proper return value here...
-                    self.push_stack(Value::Nil);
+                    self.push_stack(v);
                     continue;
                 }
                 OP_POP => {
@@ -290,6 +545,29 @@ impl VM {
                     let v = self.stack[loc_var_no].clone();
                     self.stack.push(v);
                 }
+                OP_GET_UPVALUE => {
+                    if i + 1 >= self.current_code().len() {
+                        return CompileError;
+                    }
+                    i += 1;
+               
+                    let upval_index = self.current_code()[i] as usize;
+                    let framedex = self.frames.len() - 1;
+                    let val_ref = self.get_or_set_upvalue(UpvalueAddress::new(framedex,upval_index),None).unwrap();
+                    self.stack.push(val_ref);
+                }
+                OP_SET_UPVALUE => {
+                    if i + 1 >= self.current_code().len() {
+                        return CompileError;
+                    }
+                    i += 1;
+                    let v = self.pop_stack();
+
+                    let upval_index = self.current_code()[i] as usize;
+                    let framedex = self.frames.len() - 1;
+
+                    let _ = self.get_or_set_upvalue(UpvalueAddress::new(framedex,upval_index),Some(v));
+                }
                 OP_GET_GLOBAL => {
                     if i + 1 >= self.current_code().len() {
                         return CompileError;
@@ -303,7 +581,7 @@ impl VM {
                     self.push_stack(v);
                 }
 
-                OP_FUNC => { 
+                OP_CLOSURE => { 
                     if i + 1 >= self.current_code().len() {
                         return CompileError;
                     }
@@ -312,19 +590,19 @@ impl VM {
                     let func_index = self.current_code()[i] as usize;
 
                     assert!(func_index < self.funcs.len());
+                    let cl = self.create_closed_closure(func_index);
+                    self.push_stack(Value::Closure(cl));
 
-                    self.push_stack(Value::Func(func_index));
                 }
                 OP_CALL => { 
                     if i + 1 >= self.current_code().len() {
                         return CompileError;
                     }
-                    //TODO: Fix validation
-                    i+=1;
-                    let findex = self.current_code()[i] as usize;
-                    if findex >= self.funcs.len() {
-                        return CompileError;
-                    }
+                    let v = self.pop_stack();
+                    let Value::Closure(c) = v else {
+                        return RuntimeError;
+                    };
+                    let findex = c.func;
                     let func = &self.funcs[findex];
 
                     let arity = func.arity;
@@ -333,7 +611,7 @@ impl VM {
                         return CompileError;
                     }
                     //create a new frame, return when complete
-                    self.frames.push(Frame { sip:i,func_index:findex, sp: self.stack_len()});
+                    self.frames.push(Frame { sip:i,closure: c, sp: self.stack_len()});
                     reset_ip = true;
 
                 }
@@ -493,9 +771,11 @@ impl Chunk {
     pub fn new() -> Chunk {
         return Chunk { code:vec!(),constants: vec!()};
     }
-    //TODO: Arguments
-    pub fn add_call(&mut self,findex:usize) {
+    pub fn add_call(&mut self) {
         self.code.push(Opcode::OP_CALL as u8);
+    }
+    pub fn add_closure(&mut self,findex:usize) {
+        self.code.push(Opcode::OP_CLOSURE as u8);
         self.code.push(findex as u8);
     }
     pub fn add_pop(&mut self) {
@@ -577,6 +857,14 @@ impl Chunk {
         self.code.push(Opcode::OP_GET_LOCAL as u8);
         self.code.push(ofs);
     }
+    pub fn add_get_upvalue(&mut self, ofs: u8) {
+        self.code.push(Opcode::OP_GET_UPVALUE as u8);
+        self.code.push(ofs);
+    }
+    pub fn add_set_upvalue(&mut self, ofs: u8) {
+        self.code.push(Opcode::OP_SET_UPVALUE as u8);
+        self.code.push(ofs);
+    }
     pub fn add_jump_if(&mut self, ofs: u8) -> usize{
         self.code.push(Opcode::OP_JUMP_IF_FALSE as u8);
         self.code.push(ofs);
@@ -642,6 +930,26 @@ impl fmt::Display for Chunk {
 
                     write!(f,"{}",global_index)?; 
                 } 
+                OP_GET_UPVALUE => {
+                    write!(f,"OP_GET_UPVALUE\t")?;
+                    if i + 1 >= self.code.len() {
+                        write!(f," WTFEOF")?;
+                    }
+                    i+=1;
+                    let global_index = self.code[i] as usize;
+
+                    write!(f,"{}",global_index)?; 
+                } 
+                OP_SET_UPVALUE => {
+                    write!(f,"OP_SET_UPVALUE\t")?;
+                    if i + 1 >= self.code.len() {
+                        write!(f," WTFEOF")?;
+                    }
+                    i+=1;
+                    let global_index = self.code[i] as usize;
+
+                    write!(f,"{}",global_index)?; 
+                } 
                 OP_GET_LOCAL => {
                     write!(f,"OP_GET_LOCAL\t")?;
                     if i + 1 >= self.code.len() {
@@ -662,8 +970,8 @@ impl fmt::Display for Chunk {
 
                     write!(f,"{}",index)?; 
                 } 
-                OP_FUNC => { 
-                    write!(f,"OP_FUNC\t")?;
+                OP_CLOSURE => { 
+                    write!(f,"OP_CLOSURE\t")?;
                     if i + 1 >= self.code.len() {
                         write!(f," WTFEOF")?;
                     }
@@ -674,12 +982,6 @@ impl fmt::Display for Chunk {
                 }
                 OP_CALL => { 
                     write!(f,"OP_CALL\t")?;
-                    if i + 1 >= self.code.len() {
-                        write!(f," WTFEOF")?;
-                    }
-                    i+=1;
-                    let func_index = self.code[i] as usize;
-                    write!(f,"{}",func_index)?;
                 }
 
                 OP_JUMP_IF_FALSE => {
