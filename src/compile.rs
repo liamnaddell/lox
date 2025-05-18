@@ -33,6 +33,7 @@ impl CompilePass {
             next_id:1
         }
     }
+
      fn patch_jump(&mut self, pos: usize) {
          let ch = current_chunk!(self);
         //jump to the END of the current function.
@@ -48,11 +49,11 @@ impl CompilePass {
         let opc = ch.code[pos -1];
         let op = Opcode::from_u8(opc);
         match op {
-            Opcode::OP_JUMP_IF_FALSE => ch.code[pos] = offset,
-            Opcode::OP_JUMP => ch.code[pos] = offset,
+            Opcode::OP_JUMP_IF_FALSE | Opcode::OP_JUMP | Opcode::OP_WHILE => ch.code[pos] = offset,
             _ => panic!("cant do jump at this opcode"),
         }
     }
+
     pub fn add_new_chunk(&mut self) ->usize {
         let cnk = Chunk::new();
         let cnk_index = self.cnks.len();
@@ -178,9 +179,42 @@ impl AstCooker for CompilePass {
             }
         }
     }
-     fn visit_while(&mut self, _: &While) { 
-        todo!();
+
+     fn visit_while(&mut self, w: &While) {
+        // store the location of the start of the loop
+        // this will be used after each iteration so that
+        // we are at the beginning of the loop
+        let ch=current_chunk!(self); 
+        let start_loop = ch.code.len() -1;
+
+        // check the while condition
+        self.visit_expr(&w.is_true);
+
+        // emit a while loop 
+        let ch=current_chunk!(self); 
+        let do_block = ch.add_while(0xff);
+        
+        // execute the block inside the loop
+        self.visit_block(&w.do_block);
+        
+        let ch=current_chunk!(self);
+
+        // emit a loop: this op code will have the 
+        // value to jump to the start of the loop 
+        // right before evaluating the while condition.
+        // basically after each iteration, we go back to 
+        // evaluating the while condition, if it is true, 
+        // we will do another iteration; if false, we will
+        // go after the LOOP opcode (this value is stored
+        // with the while op code).
+        let end_loop = ch.code.len() -1;
+        ch.add_loop((end_loop - start_loop) as u8);
+        // patch the value in while loop; this marks the
+        // end of the loop. We will jump here after the 
+        // while condition is false so that the program continues.
+        self.patch_jump(do_block);
     }
+
      fn visit_literal(&mut self, l: &Literal) { 
         use ast::LitKind::*;
         let ch = current_chunk!(self);
@@ -346,6 +380,9 @@ impl AstCooker for CompilePass {
                 self.visit_expr(&r.rval);
                 let ch=current_chunk!(self);
                 ch.add_return();
+            }
+            Stmt::While(ref w) => {
+                self.visit_while(w);
             }
             _ => {
                 todo!();

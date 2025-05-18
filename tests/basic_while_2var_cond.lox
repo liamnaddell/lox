@@ -1,0 +1,6 @@
+var a = 1;
+var b = 1;
+while (a == b) {
+    print("While loop should print once");
+    a = a + 1;
+};
