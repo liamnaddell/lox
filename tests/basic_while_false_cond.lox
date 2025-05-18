@@ -1,0 +1,6 @@
+var a = 4;
+while (a < 3) {
+    print("While loop printing");
+    a = a + 1;
+};
+print("nothing should be printed before this.");

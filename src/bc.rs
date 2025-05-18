@@ -38,6 +38,8 @@ pub enum Opcode {
     OP_GET_LOCAL,
     OP_GET_UPVALUE,
     OP_SET_UPVALUE,
+    OP_WHILE,
+    OP_LOOP,
 
     //MAKE SURE THIS IS THE LAST ONE!!!!!
     /* NEVER ADD CODE HERE */
@@ -737,6 +739,28 @@ impl VM {
                     i += jump_offset;
                     skip_increment = true;
                 }
+                OP_WHILE =>{
+                    if i + 1 >= self.current_code().len() {
+                        return CompileError;
+                   }
+                    i+=1;
+                    let jump_offset: usize = self.current_code()[i] as usize;
+                    let cond = self.pop_stack();
+                    if is_falsey(&cond) {
+                        i+= jump_offset;
+                        skip_increment = true;
+                   }
+                }
+                OP_LOOP =>{
+                    if i + 1 >= self.current_code().len() {
+                       return CompileError;
+                   }
+                    let jump_offset = self.current_code()[i+1] as usize;
+                    // We have < OP_CODE , VALUE >, the jump_offset will land at 
+                    // VALUE, which is not an op code, the + 1 makes sure that we
+                    // land on OP_CODE as we intend
+                    i -= (jump_offset + 1);
+                }
                 OP_PRINT => {
                     if self.stack_empty() {
                         return CompileError;
@@ -875,6 +899,15 @@ impl Chunk {
         self.code.push(ofs);
         return self.code.len() -1;
     }
+    pub fn add_while(&mut self, ofs: u8) -> usize {
+        self.code.push(Opcode::OP_WHILE as u8);
+        self.code.push(ofs);
+        return self.code.len() -1;
+    }
+    pub fn add_loop(&mut self, pos: u8) {
+        self.code.push(Opcode::OP_LOOP as u8);
+        self.code.push(pos);
+    }
 }
 
 impl fmt::Display for Chunk {
@@ -1004,7 +1037,24 @@ impl fmt::Display for Chunk {
 
                     write!(f,"{}",index)?; 
                 } 
-
+                OP_WHILE => {
+                    write!(f,"OP_WHILE\t")?;
+                    if i + 1 >= self.code.len() {
+                        write!(f," WTFEOF")?;
+                    }
+                    i+=1;
+                    let global_index = self.code[i] as usize;
+                    write!(f,"{}",global_index)?; 
+                }
+                OP_LOOP => {
+                    write!(f,"OP_LOOP\t")?;
+                    if i + 1 >= self.code.len() {
+                        write!(f," WTFEOF")?;
+                    }
+                    i+=1;
+                    let global_index = self.code[i] as usize;                     
+                    write!(f,"{}",global_index)?; 
+                } 
                 OP_NIL | OP_TRUE | OP_EQUAL | OP_FALSE | OP_ADD | OP_SUBTRACT 
                 | OP_MULTIPLY | OP_DIVIDE | OP_PRINT | OP_NEGATE | OP_NOT 
                 | OP_GREATER | OP_LESS | OP_AND | OP_OR => {

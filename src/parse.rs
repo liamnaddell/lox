@@ -306,6 +306,50 @@ impl ParsePass {
     }
 
 
+    fn parse_while(&mut self, ts: TknSlice) -> Result<Rc<While>> {
+        if ts.size() < 6 {
+            return Err(new_err(ts.loc(0),"While loop does not have enough tokens"));
+        }
+        assert!(ts.get(0).tkn_type == TokenType::While);
+        
+        let left_paren = ts.get(1);
+
+        if left_paren.tkn_type == TokenType::LeftParen {
+            // find index of right paranthesis
+            let mut i = 2;
+            let mut paren_cnt = 1;
+            while ts.end() >= i + 1 && paren_cnt != 0 {
+                i += 1;
+                if ts.get(i).tkn_type == TokenType::RightParen {
+                    paren_cnt -= 1;
+                }
+                if ts.get(i).tkn_type == TokenType::LeftParen {
+                    paren_cnt +=1;
+                }
+            }
+
+            if paren_cnt != 0 || ts.get(i).tkn_type == TokenType::LeftBrace{
+                return Err(new_err(ts.loc(ts.end()),"messed up the while cond or left brace")); 
+            }
+
+            
+            let cond = self.parse_expr(ts.sub(1,i+1))?;
+
+            // skips the right parenthesis and goes to the next token
+            i+=2;
+
+            // parse the block
+            let idx = i;
+
+            let do_block = self.parse_block(ts.sub(idx, ts.end()))?;
+
+            let whiley = self.add_while(While::new(ts.loc(0), cond, do_block, 0));
+            return Ok(whiley);
+        }
+
+        return Err(new_err(ts.loc(ts.end()),"messed up while statement somehow"));
+    }
+
     fn parse_if(&mut self,ts: TknSlice) -> Result<Rc<If>> {
         let left_paren = ts.get(1);
 
@@ -584,7 +628,7 @@ impl ParsePass {
                 return Ok(Stmt::If(self.parse_if(ts.sub(0,0))?)); 
             },
             TokenType::While => {
-                return Err(new_err(ts.loc(0),"idk bcs while loop not implemented yet"));
+                return Ok(Stmt::While(self.parse_while(ts.sub(0,0))?)); 
             },
             TokenType::Return => {
                 let expr = self.parse_expr(ts.sub(1,0))?;
