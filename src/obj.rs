@@ -3,6 +3,7 @@ use std::fmt;
 use std::mem::ManuallyDrop;
 use std::alloc;
 use crate::bc::VM;
+use std::mem::MaybeUninit;
 
 #[repr(C)]
 #[derive(PartialEq,Clone,Copy,Debug)]
@@ -62,11 +63,16 @@ impl Upvalue {
 }
 
 
-#[derive(Default)]
 pub struct Closure {
     pub func: usize,
     //TODO: Not implemented by us >:)
-    pub upvalues: Vec<Upvalue>,
+    pub upvalues: MaybeUninit<Vec<Upvalue>>,
+}
+impl Default for Closure {
+    fn default() -> Self { Self {
+        func: 69420,
+        upvalues: MaybeUninit::zeroed(),
+    }}
 }
 
 #[repr(C)]
@@ -469,7 +475,7 @@ impl fmt::Display for Upvalue {
 impl fmt::Display for Closure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "func: {}, upvalues: [", self.func,)?;
-        for uv in self.upvalues.iter() {
+        for uv in self.get_upvalues().iter() {
             write!(f,"{},",uv)?;
         }
         write!(f,"\n")
@@ -486,7 +492,17 @@ impl fmt::Debug for Closure {
 
 impl Closure {
     pub fn new(vm: &VM, findex: usize) -> Self {
-        return Closure { func: findex, upvalues: vm.funcs[findex].upvalues_template.clone() };
+        return Closure { func: findex, upvalues: MaybeUninit::new(vm.funcs[findex].upvalues_template.clone()) };
+    }
+    pub fn get_upvalues_mut(&mut self) -> &mut Vec<Upvalue> {
+        unsafe {
+            return self.upvalues.assume_init_mut();
+        }
+    }
+    pub fn get_upvalues(&self) -> &Vec<Upvalue> {
+        unsafe {
+            return self.upvalues.assume_init_ref();
+        }
     }
 }
 

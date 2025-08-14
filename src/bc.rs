@@ -179,8 +179,8 @@ impl VM {
     //Allocate these manually
     pub fn new_value(&mut self) -> Value {
         let iv = InnerValue::new();
-        let v2 = Value::new(&iv);
         self.vals.push(iv);
+        let v2 = Value::new(&self.vals[self.vals.len() - 1]);
         return v2;
     }
     pub fn new_value_from_iv(&mut self, iv: InnerValue) -> Value {
@@ -250,14 +250,14 @@ impl VM {
 
         //This while loop traverses up the stack to resolve the upvalue.
         while i > 0 {
-            let cu = &mut self.frames[i].get_closure().upvalues[slot];
+            let cu = &mut self.frames[i].get_closure().get_upvalues_mut()[slot];
             //this is the offset into the next frame's upvalue array.
             slot = cu.slot as usize;
             if cu.is_local() {
                 //The upvalue is a local variable in our parent frame.
                 let val = &self.stack[self.frames[i].sp + slot];
                 //so we grab it.
-                let cu = &mut self.frames[i].get_closure().upvalues[slot];
+                let cu = &mut self.frames[i].get_closure().get_upvalues_mut()[slot];
                 //this closes the upvalue.
                 cu.set(val.clone());
                 //The bottom section would copy again. Tis' harmless yet a waste.
@@ -272,15 +272,15 @@ impl VM {
             i -= 1;
         }
         assert!(i > 0);
-        let cu = &self.frames[i].get_closure().upvalues[slot];
+        let cu = &self.frames[i].get_closure().get_upvalues_mut()[slot];
         let cv = Some(cu.closed_value.as_ref().unwrap().clone());
         let lf = self.frames.len() - 1;
-        let u = &mut self.frames[lf].get_closure().upvalues[upvalue_index];
+        let u = &mut self.frames[lf].get_closure().get_upvalues_mut()[upvalue_index];
         u.closed_value = cv;
     }
     pub fn create_closed_closure(&mut self,findex: usize) -> Closure {
         let cl = Closure::new(self,findex);
-        let len = cl.upvalues.len();
+        let len = cl.get_upvalues().len();
         //close_upvalue resolves upvalues in the "current frame".
         //We need to temporarily push the closure onto the framestack 
         //in order to resolve upvalues.
@@ -346,11 +346,11 @@ impl VM {
     }
 
     pub fn get_upvalue(&self, ua: UpvalueAddress) -> &Upvalue {
-        return &self.frames[ua.frame].get_closure().upvalues[ua.upvalue];
+        return &self.frames[ua.frame].get_closure().get_upvalues()[ua.upvalue];
     }
 
     pub fn get_upvalue_mut(&mut self, ua: UpvalueAddress) -> &mut Upvalue {
-        return &mut self.frames[ua.frame].get_closure().upvalues[ua.upvalue];
+        return &mut self.frames[ua.frame].get_closure().get_upvalues_mut()[ua.upvalue];
     }
 
     /**
@@ -415,7 +415,7 @@ impl VM {
             let cur_clos = cur_frame.get_closure();
 
             //Get the upvalue from the function.
-            let u = &cur_clos.upvalues[slot as usize];
+            let u = &cur_clos.get_upvalues_mut()[slot as usize];
             if u.is_local() || u.is_closed() {
                 //cant resolve in global space
                 assert!(cur_frame_no != 1);
