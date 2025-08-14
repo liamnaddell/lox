@@ -62,7 +62,7 @@ impl Upvalue {
 }
 
 
-
+#[derive(Default)]
 pub struct Closure {
     pub func: usize,
     //TODO: Not implemented by us >:)
@@ -140,8 +140,8 @@ impl InnerValue {
     pub fn move_closure(&self) -> Closure {
         //this won't be pretty
         assert!(self.tag == ValueTag::Closure);
-        let cl_pointer: *mut Closure = self.vd.closure;
         unsafe {
+            let cl_pointer: *mut Closure = self.vd.closure;
             let cl_mutref: &mut Closure = &mut *cl_pointer;
             //this converts a &mut Closure -> Closure by STEALING it's memory
             let new_cl: Closure = std::mem::take(cl_mutref);
@@ -216,10 +216,10 @@ impl InnerValue {
             self.vd.closure = cl_ptr;
         }
     }
-    pub fn get_closure(&self) -> &Closure {
+    pub fn get_closure(&self) -> &mut Closure {
         assert!(self.tag == ValueTag::Closure);
         unsafe {
-            return &*self.vd.closure;
+            return &mut *self.vd.closure;
         }
     }
     pub fn is_closure(&self) -> bool {
@@ -360,7 +360,7 @@ impl Value {
             (&mut*self.iv).set_closure(a);
         }
     }
-    pub fn get_closure(&self) -> &Closure {
+    pub fn get_closure(&self) -> &mut Closure {
         unsafe {
             return (&*self.iv).get_closure();
         }
