@@ -1,7 +1,7 @@
 use crate::ast::*;
 use std::collections::HashMap;
 use std::sync::OnceLock;
-use crate::bc;
+use crate::obj;
 
 struct VariablePassResults {
     vp: VariablePass,
@@ -267,12 +267,12 @@ impl VariablePass {
         }
     }
     //TODO: Bad practice for vpass to depend on bc ? 
-    pub fn get_upvalue_template(&self,nodeid: NodeId) -> Vec<bc::Upvalue> {
+    pub fn get_upvalue_template(&self,nodeid: NodeId) -> Vec<obj::Upvalue> {
         let uvs = self.get_upvalues(nodeid);
         let mut tvs = vec!();
         let mut i = 0;
         for uv in uvs.upvalues.iter() {
-            tvs.push ( bc::Upvalue::new(uv.is_local, i));
+            tvs.push ( obj::Upvalue::new(uv.is_local, i));
             i+=1;
         }
         return tvs;

@@ -1,6 +1,5 @@
 use std::fmt;
-use std::rc::Rc;
-use std::cell::RefCell;
+use crate::obj::*;
 
 
 #[repr(u8)]
@@ -59,38 +58,6 @@ impl Opcode {
     }
 }
 
-#[derive(Clone, Debug)]
-struct Closure{
-    /** index into vm.funcs */
-    pub func: usize,
-    /** A list of upvalue objects that may be referenced by the function body */
-    pub upvalues: Vec<Upvalue>,
-}
-
-/** We need to impl PartialEq because Closures are values */
-impl PartialEq for Closure {
-    fn eq(&self, oth: &Self) -> bool {
-        return self.func == oth.func;
-    }
-}
-
-impl fmt::Display for Closure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "func: {}, upvalues: [", self.func,)?;
-        for uv in self.upvalues.iter() {
-            write!(f,"{},",uv)?;
-        }
-        write!(f,"\n")
-
-    }
-}
-
-impl Closure {
-    pub fn new(vm: &VM, findex: usize) -> Self {
-        return Closure { func: findex, upvalues: vm.funcs[findex].upvalues_template.clone() };
-    }
-}
-
 /** A unique address used to find an upvalue inside struct VM */
 #[derive(Clone,Copy,Debug)]
 struct UpvalueAddress {
@@ -103,8 +70,9 @@ impl UpvalueAddress {
     }
 }
 
+/*
 #[derive(Clone,PartialEq, Debug)]
-pub enum Value {
+pub enum ValueOld {
     Bool(bool),
     Nil,
     Num(f64),
@@ -112,28 +80,29 @@ pub enum Value {
     Closure(Closure),
 }
 
-impl fmt::Display for Value {
+impl fmt::Display for ValueOld {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Bool(b) => {
+            ValueOld::Bool(b) => {
                 write!(f,"{}",b)?;
             }
-            Value::Nil => {
+            ValueOld::Nil => {
                 write!(f,"Nil")?;
             }
-            Value::Num(fnum) => {
+            ValueOld::Num(fnum) => {
                 write!(f,"{}",fnum)?;
             }
-            Value::String(fstr) => {
+            ValueOld::String(fstr) => {
                 write!(f,"{}",fstr)?;
             }
-            Value::Closure(i) => {
+            ValueOld::Closure(i) => {
                 write!(f,"<closure: {}>",i)?;
             }
         }
         write!(f,"")
     }
 }
+*/
 
 #[derive(Debug,PartialEq)]
 pub enum InterpretResult {
@@ -143,71 +112,18 @@ pub enum InterpretResult {
 }
 
 fn is_falsey(v: &Value) -> bool {
-    if let Value::Bool(b) = v {
-        return *b == false;
+    if v.is_bool() {
+        let b = v.get_bool();
+        return b == false;
     }
 
-    if *v == Value::Nil {
+    if v.is_nil() {
         return true;
     }
 
     return false;
 }
 
-/** This is how Upvalues are stored inside closures.
- * When executing OP_CLOSURE, all the Upvalues
- * will be closed. Before that point, we need to traverse
- * up the function stack to access an upvalue
- */
-#[derive(Clone,Debug)]
-pub struct Upvalue {
-    /** 
-     * Is the upvalue in our direct parent function? 
-     * Or do we need to go to other frames to get to
-     * her 
-     */
-    is_local: bool,
-    /**
-     * If our upvalue is in our direct parent function, this is the offset
-     * If our upvalue is in her enclosing function, this is the index into our
-     * parent's `upvalues` array 
-     */
-    slot: u32,
-    //FIXME: This is a temporary hack to get around having no garbage collector.
-    closed_value: Option<Rc<RefCell<Value>>>,
-}
-
-impl fmt::Display for Upvalue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f,"(is_local: {}, slot: {}, closed_value: {})",self.is_local,self.slot,self.closed_value.is_some())
-    }
-}
-
-impl Upvalue {
-    pub fn is_closed(&self) -> bool {
-        self.closed_value.is_some()
-    }
-    pub fn is_local(&self) -> bool {
-        self.is_local
-    }
-    pub fn set(&mut self, v: Value) {
-        if let Some(ref mut old_value) = self.closed_value {
-            old_value.replace(v);
-        } else {
-            self.closed_value = Some(Rc::new(RefCell::new(v)));
-        }
-    }
-    pub fn get(&self) -> Value {
-        let Some(ref v) = self.closed_value else {
-            unreachable!();
-        };
-
-        return (*v).borrow().clone();
-    }
-    pub fn new(is_local: bool, slot: u32) -> Upvalue {
-        return Upvalue { is_local:is_local,slot:slot,closed_value:None};
-    }
-}
 
 pub struct Function {
     pub chunk: usize,
@@ -229,9 +145,20 @@ struct Frame {
     //stored instruction pointer in previous frame (return address)
     sip: usize,
     // The function (closure) we are currently running.
-    closure: Closure,
+    closure: Value,
     //size of the stack before the function call.
     sp: usize,
+}
+
+impl Frame {
+    pub fn get_closure(&self) -> &Closure {
+        return self.closure.get_closure();
+    }
+    pub fn move_closure(&mut self) -> Closure {
+        //note, after this called, the current closure is destroyed and now invalid, becuase the
+        //Value inside will be nil.
+        return self.closure.move_closure();
+    }
 }
 
 pub struct VM {
@@ -242,17 +169,72 @@ pub struct VM {
     pub stack: Vec<Value>,
     frames: Vec<Frame>,
     pub globals: Vec<Value>,
+    //object storage :0
+    vals: Vec<InnerValue>,
 }
 
 use crate::compile::CompilePass;
 impl VM {
+    //TODO: This code is StOoPiD.
+    //Allocate these manually
+    pub fn new_value(&mut self) -> Value {
+        let iv = InnerValue::new();
+        let v2 = Value::new(&iv);
+        self.vals.push(iv);
+        return v2;
+    }
+    pub fn new_value_from_iv(&mut self, iv: InnerValue) -> Value {
+        let v2 = Value::new(&iv);
+        self.vals.push(iv);
+        return v2;
+    }
+    pub fn new_str(&mut self,a:String) -> Value {
+        let v = self.new_value();
+        v.set_str(a);
+        return v;
+    }
+    pub fn new_num(&mut self,a:f64) -> Value {
+        let v = self.new_value();
+        v.set_num(a);
+        return v;
+    }
+    pub fn new_nil(&mut self) -> Value {
+        let v = self.new_value();
+        return v;
+    }
+    pub fn new_bool(&mut self,a:bool) -> Value {
+        let v = self.new_value();
+        v.set_bool(a);
+        return v;
+    }
+    pub fn new_closure(&mut self,a:Closure) -> Value {
+        let v = self.new_value();
+        v.set_closure(a);
+        return v;
+    }
+    pub fn val_from_const(&mut self,a:&ConstValue) -> Value {
+        let mut v = self.new_value();
+        v.copy_from_const(a);
+        return v;
+    }
     pub fn new(cp: CompilePass) -> VM {
         return VM {funcs: cp.funcs,
             chunks:cp.cnks,
             frames:vec!(),
             stack:vec!(),
             globals: cp.globals,
+            vals: vec!(),
         };
+    }
+    pub fn collect_garbage(&mut self) {
+        //step 1: Snow White     (mark everything as white/freeable)
+        for v in self.vals.iter_mut() {
+            v.mark = ValueMark::White;
+        }
+        //step 2: Plant a Tree   (rooting objects)
+        //step 3: Climb the Tree (go thru the worklist to find what's still needed)
+        //step 4: Grimhilde      (free anything marked white)
+
     }
     /** 
      * This function takes an upvalue in the current frame of execution and 
@@ -297,18 +279,20 @@ impl VM {
         u.closed_value = cv;
     }
     pub fn create_closed_closure(&mut self,findex: usize) -> Closure {
-        let mut cl = Closure::new(self,findex);
+        let cl = Closure::new(self,findex);
         let len = cl.upvalues.len();
         //close_upvalue resolves upvalues in the "current frame".
         //We need to temporarily push the closure onto the framestack 
         //in order to resolve upvalues.
         //Makes the code easier to write.
-        self.frames.push(Frame { closure:cl,sip:0,sp:0});
+        //Efficiency note: This is pretty inefficient and bad :(
+        let c = self.new_closure(cl);
+        self.frames.push(Frame { closure:c,sip:0,sp:0});
         for upvalue in 0..len {
             self.close_upvalue(upvalue);
         }
-        let f = self.frames.pop().unwrap();
-        return f.closure;
+        let mut f = self.frames.pop().unwrap();
+        return f.move_closure();
     }
     pub fn stack_len(&self) -> usize {
         return self.stack.len();
@@ -346,7 +330,7 @@ impl VM {
     }
 
     pub fn current_closure(&self) -> &Closure {
-        return &self.current_frame().closure;
+        return &self.current_frame().get_closure();
     }
 
     pub fn current_chunk(&self) -> &Chunk {
@@ -357,7 +341,7 @@ impl VM {
         return &self.current_chunk().code;
     }
 
-    pub fn current_constants(&self) -> &Vec<Value> {
+    pub fn current_constants(&self) -> &Vec<ConstValue> {
         return &self.current_chunk().constants;
     }
 
@@ -453,7 +437,9 @@ impl VM {
         use Opcode::*;
         let mut i = 0;
         //start at the main function
-        self.frames.push(Frame { sip: 0, closure:Closure::new(self,0), sp: 0 });
+        let cl = Closure::new(self,0);
+        let v = self.new_closure(cl);
+        self.frames.push(Frame { sip: 0, closure:v, sp: 0 });
         let mut reset_ip = false;
         let mut skip_increment = false;
         loop {
@@ -498,7 +484,8 @@ impl VM {
                         return CompileError;
                     }
 
-                    let v = self.current_constants()[const_index].clone();
+                    let new_value = self.current_constants()[const_index].clone();
+                    let v = self.new_value_from_iv(new_value.iv);
                     self.push_stack(v);
                 }
 
@@ -593,7 +580,8 @@ impl VM {
 
                     assert!(func_index < self.funcs.len());
                     let cl = self.create_closed_closure(func_index);
-                    self.push_stack(Value::Closure(cl));
+                    let nb = self.new_closure(cl);
+                    self.push_stack(nb);
 
                 }
                 OP_CALL => { 
@@ -601,9 +589,10 @@ impl VM {
                         return CompileError;
                     }
                     let v = self.pop_stack();
-                    let Value::Closure(c) = v else {
+                    if !v.is_closure() {
                         return RuntimeError;
-                    };
+                    }
+                    let c = v.get_closure();
                     let findex = c.func;
                     let func = &self.funcs[findex];
 
@@ -613,7 +602,8 @@ impl VM {
                         return CompileError;
                     }
                     //create a new frame, return when complete
-                    self.frames.push(Frame { sip:i,closure: c, sp: self.stack_len()});
+                    //Are we supposed to clone the closure here?
+                    self.frames.push(Frame { sip:i,closure: v, sp: self.stack_len()});
                     reset_ip = true;
 
                 }
@@ -625,17 +615,20 @@ impl VM {
                     let v1 = self.pop_stack();
                     let v2 = self.pop_stack();
 
-                    match (v1,v2) {
-                        (Value::Num(f1),Value::Num(f2)) => {
-                            self.push_stack(Value::Num(op_fn(f2,f1)));
-                        }
-                        (Value::String(s1), Value::String(s2)) => {
-                            self.push_stack(Value::String(s2 + &s1));
-                        }
-                        _ => {
-                            return RuntimeError;
-                        }
+                    if v1.is_num() && v2.is_num() {
+                        let f1 = v1.get_num();
+                        let f2 = v2.get_num();
+                        let res = op_fn(f2,f1);
+                        let nb = self.new_num(res);
+                        self.push_stack(nb);
                     }
+                    if v1.is_str() && v2.is_str() {
+                        let s1 = v1.get_str();
+                        let s2 = v2.get_str();
+                        let nb = self.new_str(s2.to_owned() + &s1);
+                        self.push_stack(nb);
+                    }
+                    return RuntimeError;
                 }
                 OP_EQUAL => {
                     if self.stack_len() < 2 {
@@ -644,7 +637,8 @@ impl VM {
                     let v1 = self.pop_stack();
                     let v2 = self.pop_stack();
 
-                    self.push_stack(Value::Bool(v1 == v2));
+                    let nb = self.new_bool(v1 == v2);
+                    self.push_stack(nb);
                 }
                 OP_GREATER | OP_LESS => {
                     if self.stack_len() < 2 {
@@ -653,29 +647,32 @@ impl VM {
                     let v1 = self.pop_stack();
                     let v2 = self.pop_stack();
 
-                    match (v1,v2) {
-                        (Value::Num(f1),Value::Num(f2)) => {
-                            if op == OP_GREATER {
-                                self.push_stack(Value::Bool(f2 > f1));
-                            } else if op == OP_LESS {
-                                self.push_stack(Value::Bool(f2 < f1));
-                            } else {
-                                panic!("whut");
-                            }
-                        }
-                        _ => {
-                            return RuntimeError;
+                    if v1.is_num() && v2.is_num() {
+                        let f1 = v1.get_num();
+                        let f2 = v2.get_num();
+                        if op == OP_GREATER {
+                            let nb = self.new_bool(f2 > f1);
+                            self.push_stack(nb);
+                        } else if op == OP_LESS {
+                            let nb = self.new_bool(f2 < f1);
+                            self.push_stack(nb);
+                        } else {
+                            panic!("whut");
                         }
                     }
+                    return RuntimeError;
                 }
                 OP_NIL => {
-                    self.push_stack(Value::Nil);
+                    let nb = self.new_nil();
+                    self.push_stack(nb);
                 }
                 OP_TRUE => {
-                    self.push_stack(Value::Bool(true));
+                    let nb = self.new_bool(true);
+                    self.push_stack(nb);
                 }
                 OP_FALSE => {
-                    self.push_stack(Value::Bool(false));
+                    let nb = self.new_bool(false);
+                    self.push_stack(nb);
                 }
                 OP_NEGATE => {
                     if self.stack_len() < 1 {
@@ -683,8 +680,10 @@ impl VM {
                     }
                     let v1 = self.pop_stack();
 
-                    if let Value::Num(a) = v1 {
-                        self.push_stack(Value::Num(-1.0*a));
+                    if v1.is_num() {
+                        let a = v1.get_num();
+                        let nb = self.new_num(-1.0*a);
+                        self.push_stack(nb);
                     } else {
                         return RuntimeError;
                     }
@@ -694,8 +693,8 @@ impl VM {
                         return CompileError;
                     }
                     let v1 = self.pop_stack();
-
-                    self.push_stack(Value::Bool(is_falsey(&v1)));
+                    let nb = self.new_bool(is_falsey(&v1));
+                    self.push_stack(nb);
                 }
                 OP_AND | OP_OR => {
                     if self.stack_len() < 2 {
@@ -703,17 +702,19 @@ impl VM {
                     }
                     let v2 = self.pop_stack();
                     let v1 = self.pop_stack();
-                    match (v2,v1) {
-                        (Value::Bool(a),Value::Bool(b)) => {
-                            if op == OP_AND {
-                                self.push_stack(Value::Bool(a && b));
-                            } else if op == OP_OR {
-                                self.push_stack(Value::Bool(a || b));
-                            } else {
-                                panic!("whut");
-                            }
+                    if v1.is_bool() && v2.is_bool() {
+                        let a = v1.get_bool();
+                        let b = v2.get_bool();
+                        if op == OP_AND {
+                            let nb = self.new_bool(a && b);
+                            self.push_stack(nb);
+                        } else if op == OP_OR {
+                            let nb =self.new_bool(a || b);
+                            self.push_stack(nb);
+                        } else {
+                            panic!("whut");
                         }
-                        _ => {return RuntimeError;}
+                        return RuntimeError;
                     }
                 }
                 OP_JUMP_IF_FALSE => {
@@ -759,7 +760,7 @@ impl VM {
                     // We have < OP_CODE , VALUE >, the jump_offset will land at 
                     // VALUE, which is not an op code, the + 1 makes sure that we
                     // land on OP_CODE as we intend
-                    i -= (jump_offset + 1);
+                    i -= jump_offset + 1;
                 }
                 OP_PRINT => {
                     if self.stack_empty() {
@@ -786,7 +787,7 @@ impl VM {
 
 pub struct Chunk {
     pub code: Vec<u8>,
-    pub constants: Vec<Value>,
+    pub constants: Vec<ConstValue>,
 }
 
 
@@ -806,13 +807,17 @@ impl Chunk {
         self.code.push(Opcode::OP_POP as u8);
     }
     pub fn add_const_num(&mut self,v:f64) {
-        self.constants.push(Value::Num(v));
+        let mut cv = ConstValue::new();
+        cv.set_num(v);
+        self.constants.push(cv);
         let index = self.constants.len()-1;
         self.code.push(Opcode::OP_CONSTANT as u8);
         self.code.push(index as u8);
     }
     pub fn add_const_str(&mut self, v: &String) {
-        self.constants.push(Value::String(v.clone()));
+        let mut cv = ConstValue::new();
+        cv.set_str(v.clone());
+        self.constants.push(cv);
         let index = self.constants.len()-1;
         self.code.push(Opcode::OP_CONSTANT as u8);
         self.code.push(index as u8);
@@ -938,7 +943,7 @@ impl fmt::Display for Chunk {
                         write!(f," WTFINDEX")?;
                     }
 
-                    let v = self.constants[const_index].clone();
+                    let v = &self.constants[const_index];
                     write!(f,"{}",v)?;
                 }
 
