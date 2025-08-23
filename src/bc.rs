@@ -169,8 +169,8 @@ pub struct VM {
     pub stack: Vec<Value>,
     frames: Vec<Frame>,
     pub globals: Vec<Value>,
-    //object storage :0
-    vals: Vec<InnerValue>,
+    //this is used for the garbage collector
+    vals: Vec<Value>,
 }
 
 use crate::compile::CompilePass;
@@ -178,14 +178,8 @@ impl VM {
     //TODO: This code is StOoPiD.
     //Allocate these manually
     pub fn new_value(&mut self) -> Value {
-        let iv = InnerValue::new();
-        self.vals.push(iv);
-        let v2 = Value::new(&self.vals[self.vals.len() - 1]);
-        return v2;
-    }
-    pub fn new_value_from_iv(&mut self, iv: InnerValue) -> Value {
-        let v2 = Value::new(&iv);
-        self.vals.push(iv);
+        let v2 = Value::new();
+        self.vals.push(v2);
         return v2;
     }
     pub fn new_str(&mut self,a:String) -> Value {
@@ -229,7 +223,7 @@ impl VM {
     pub fn collect_garbage(&mut self) {
         //step 1: Snow White     (mark everything as white/freeable)
         for v in self.vals.iter_mut() {
-            v.mark = ValueMark::White;
+            v.set_mark(ValueMark::White);
         }
         //step 2: Plant a Tree   (rooting objects)
         //step 3: Climb the Tree (go thru the worklist to find what's still needed)
@@ -448,7 +442,7 @@ impl VM {
             }
             let opc = self.current_code()[i];
             let op = Opcode::from_u8(opc);
-            println!("About to execute {:?}",op);
+            //println!("About to execute {:?}",op);
             //TODO: Clean up all of this spammy garbage and get rid of CompileError
             match op {
                 OP_RETURN => { 
@@ -484,8 +478,10 @@ impl VM {
                         return CompileError;
                     }
 
+                    //TODO: slow?
                     let new_value = self.current_constants()[const_index].clone();
-                    let v = self.new_value_from_iv(new_value.iv);
+                    let mut v = self.new_value();
+                    v.copy_from_const(&new_value);
                     self.push_stack(v);
                 }
 
@@ -621,14 +617,14 @@ impl VM {
                         let res = op_fn(f2,f1);
                         let nb = self.new_num(res);
                         self.push_stack(nb);
-                    }
-                    if v1.is_str() && v2.is_str() {
+                    } else if v1.is_str() && v2.is_str() {
                         let s1 = v1.get_str();
                         let s2 = v2.get_str();
                         let nb = self.new_str(s2.to_owned() + &s1);
                         self.push_stack(nb);
+                    } else {
+                        return RuntimeError;
                     }
-                    return RuntimeError;
                 }
                 OP_EQUAL => {
                     if self.stack_len() < 2 {

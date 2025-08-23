@@ -135,14 +135,39 @@ impl InnerValue {
         //step 2: reset to null
         self.tag = ValueTag::Nil;
     }
-    pub fn copy_from(&mut self, _a: &InnerValue) {
-        unimplemented!();
+    pub fn copy_from(&mut self, a: &InnerValue) {
+        self.clear();
+        self.tag = a.tag;
+        unsafe {
+            match a.tag {
+                ValueTag::Str => {
+                    let a_s = a.vd.s.clone();
+                    self.vd.s = a_s;
+                },
+                ValueTag::Closure => {
+                    unimplemented!();
+                },
+                ValueTag::Num => {
+                    //value copy
+                    self.vd.n = a.vd.n
+                },
+                ValueTag::Bool => {
+                    //value copy
+                    self.vd.b = a.vd.b
+                },
+                ValueTag::Nil  => {
+                    //value copy
+                    self.vd.null = 0;
+                },
+            }
+        }
     }
     pub fn set_str(&mut self, a: String) {
         self.clear();
         self.tag = ValueTag::Str;
         self.vd.s = ManuallyDrop::new(a);
     }
+    //TODO: This should be mutable api
     pub fn move_closure(&self) -> Closure {
         //this won't be pretty
         assert!(self.tag == ValueTag::Closure);
@@ -151,6 +176,7 @@ impl InnerValue {
             let cl_mutref: &mut Closure = &mut *cl_pointer;
             //this converts a &mut Closure -> Closure by STEALING it's memory
             let new_cl: Closure = std::mem::take(cl_mutref);
+            //self.clear(); should call this
             return new_cl;
         }
 
@@ -183,7 +209,7 @@ impl InnerValue {
     
     pub fn set_num(&mut self, a: f64) {
         self.clear();
-        self.tag = ValueTag::Bool;
+        self.tag = ValueTag::Num;
         self.vd.n = a;
     }
     pub fn get_num(&self) -> f64 {
@@ -233,7 +259,7 @@ impl InnerValue {
     }
 }
 
-#[derive(Clone,Debug,PartialEq)]
+#[derive(Clone,Debug,PartialEq,Copy)]
 pub enum ValueMark {
     Black,
     White,
@@ -296,8 +322,22 @@ pub struct Value {
     iv: *mut InnerValue,
 }
 impl Value {
-    pub fn new(iv: &InnerValue) -> Value {
-        return Value { iv: iv as *const InnerValue as *mut InnerValue };
+    pub fn new() -> Value {
+        unsafe {
+        let layout = alloc::Layout::new::<InnerValue>();
+        let ptr = alloc::alloc(layout);
+        if ptr.is_null() {
+            panic!("alloc fails");
+        }
+        //coding rust is my passion
+        let iv_ptr = ptr as *mut InnerValue;
+        let iv_ref = &mut *iv_ptr;
+        iv_ref.tag = ValueTag::Nil;
+        iv_ref.mark = ValueMark::White;
+        iv_ref.vd.null = 0;
+
+        return Value { iv: iv_ptr };
+        }
     }
     pub fn copy_from_const(&mut self,a:&ConstValue) {
         unsafe {
@@ -383,6 +423,16 @@ impl Value {
             return (&*self.iv).is_nil();
         }
     }
+    pub fn get_mark(&self) -> ValueMark {
+        unsafe {
+            return (&*self.iv).mark;
+        }
+    }
+    pub fn set_mark(&mut self, vm: ValueMark) {
+        unsafe {
+            return (&mut *self.iv).mark = vm;
+        }
+    }
 }
 impl fmt::Display for Value {
 
@@ -405,26 +455,26 @@ impl fmt::Debug for InnerValue {
 
 impl fmt::Display for InnerValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        return write!(f,"");
-        /*
-        match self {
-            ValueOld::Bool(b) => {
-                write!(f,"{}",b)?;
-            }
-            ValueOld::Nil => {
-                write!(f,"Nil")?;
-            }
-            ValueOld::Num(fnum) => {
-                write!(f,"{}",fnum)?;
-            }
-            ValueOld::String(fstr) => {
-                write!(f,"{}",fstr)?;
-            }
-            ValueOld::Closure(i) => {
-                write!(f,"<closure: {}>",i)?;
+        unsafe {
+            match self.tag {
+                ValueTag::Bool => {
+                    write!(f,"{}",self.vd.b)?;
+                }
+                ValueTag::Nil => {
+                    write!(f,"Nil")?;
+                }
+                ValueTag::Num => {
+                    write!(f,"{}",self.vd.n)?;
+                }
+                ValueTag::Str => {
+                    write!(f,"{}",*self.vd.s)?;
+                }
+                ValueTag::Closure => {
+                    write!(f,"<closure: {}>",(*self.vd.closure).func)?;
+                }
             }
         }
-        */
+        write!(f,"")
     }
 }
 
