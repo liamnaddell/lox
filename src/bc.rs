@@ -655,8 +655,9 @@ impl VM {
                         } else {
                             panic!("whut");
                         }
+                    } else {
+                        return RuntimeError;
                     }
-                    return RuntimeError;
                 }
                 OP_NIL => {
                     let nb = self.new_nil();
@@ -710,6 +711,7 @@ impl VM {
                         } else {
                             panic!("whut");
                         }
+                    } else {
                         return RuntimeError;
                     }
                 }
