@@ -1,4 +1,5 @@
 use crate::bc::*;
+use crate::obj::*;
 use crate::ast::*;
 use crate::ast;
 use crate::vpass;
@@ -383,9 +384,6 @@ impl AstCooker for CompilePass {
             }
             Stmt::While(ref w) => {
                 self.visit_while(w);
-            }
-            _ => {
-                todo!();
             }
         }
     }

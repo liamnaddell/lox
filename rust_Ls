@@ -3,3 +3,38 @@
 3. dealing with nodeid's is horrible because no OO
 4. AI generate your ::new() functions!
 5. Probably the worst of all is the lack of reference splitting on structs. There's no way to borrow part of a struct. This makes an entire class of correct code incorrect, and forces people to redesign their structs to being smaller, even when it's inappropriate!
+
+error[E0499]: cannot borrow `*self` as mutable more than once at a time
+   --> src/bc.rs:662:37
+    |
+662 |                     self.push_stack(self.new_bool(is_falsey(&v1)));
+    |                     ---- ---------- ^^^^ second mutable borrow occurs here
+    |                     |    |
+    |                     |    first borrow later used by call
+    |                     first mutable borrow occurs here
+    |
+help: try adding a local storing this argument...
+   --> src/bc.rs:662:37
+    |
+662 |                     self.push_stack(self.new_bool(is_falsey(&v1)));
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: ...and then using that local as the argument to this call
+   --> src/bc.rs:662:21
+    |
+662 |                     self.push_stack(self.new_bool(is_falsey(&v1)));
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+what the hell man. Why do I need a local binding here?
+
+error[E0502]: cannot borrow `*self` as mutable because it is also borrowed as immutable
+   --> src/bc.rs:463:29
+    |
+463 |                     let v = self.val_from_const(&self.current_constants()[const_index]);
+    |                             ^^^^^--------------^^----^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |                             |    |               |
+    |                             |    |               immutable borrow occurs here
+    |                             |    immutable borrow later used by call
+    |                             mutable borrow occurs here
+More legitimate version of this error, but wtf. Duplicating, moving internal resources is impossible :(
+
+how to solve this: Add code for creating a value outside of self.vm, then add it to self.vm (more complex and bug prone
